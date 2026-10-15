@@ -1,0 +1,70 @@
+name: Check and build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/package_eel2.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eel2-server
+          path: dist/*.pyz
+          if-no-files-found: error
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --target wasm32-wasip2
+      - run: cargo +stable build --locked --release --target wasm32-wasip2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eel2-extension-wasm
+          path: target/wasm32-wasip2/release/mtt_eel2_zed.wasm
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: eel2-server
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: eel2-extension-wasm
+          path: release
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, tomllib
+          manifest = tomllib.loads(pathlib.Path('extension.toml').read_text())
+          version = manifest['version']
+          assert os.environ['RELEASE_TAG'] == 'v' + version, 'Tag and manifest version differ'
+          assert pathlib.Path('release/eel2-lsp-v' + version + '.pyz').is_file()
+          PY
+      - name: Publish release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" release/* --verify-tag --title "EEL2 / JSFX $RELEASE_TAG" --notes-file RELEASE_NOTES.md

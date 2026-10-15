@@ -1,0 +1,7 @@
+/target/
+/grammars/
+/extension.wasm
+/dist/
+__pycache__/
+*.py[cod]
+.DS_Store

@@ -1,0 +1,15 @@
+id = "eel2"
+name = "EEL2 / JSFX"
+version = "0.1.0"
+schema_version = 1
+authors = ["Mattia Persico"]
+description = "EEL2 and REAPER JSFX language support with completion, hover, navigation and diagnostics."
+repository = "https://github.com/MattiaPersico/zed-eel2"
+
+[language_servers.eel2-lsp]
+name = "MTT EEL2 Language Server"
+languages = ["EEL2"]
+
+[grammars.eel2]
+repository = "https://github.com/DyGriin/tree-sitter-eel2"
+rev = "97d4ad9b26390fe7c255d36765eda09a2b1ed73c"

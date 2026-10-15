@@ -1,0 +1,12 @@
+name = "EEL2"
+grammar = "eel2"
+path_suffixes = ["jsfx", "jsfx-inc", "eel", "eel2"]
+line_comments = ["// "]
+block_comment = ["/*", "*/"]
+tab_size = 2
+word_characters = ["_", ".", "#", "$"]
+brackets = [
+  { start = "(", end = ")", close = true, newline = true },
+  { start = "[", end = "]", close = true, newline = false },
+  { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+]
