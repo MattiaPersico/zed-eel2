@@ -66,6 +66,16 @@ as LSP diagnostics.
 
 ## Recorded validation
 
-Python tests and native Rust compilation pass. A manual editor test and the
-WebAssembly build must be recorded before registry submission. No REAPER
-compilation or audio validation is claimed.
+On 2026-10-16, version 0.1.0 at commit
+`7416e49b55a0f127ac83d1b730ff1cf3a903a1f7` passed:
+
+- 27 standalone Python tests, native Rust checking and the GitHub Actions
+  `wasm32-wasip2` release build.
+- Manual smoke testing in Zed 1.24.2 on macOS arm64, using the released adapter
+  and pinned grammar: EEL2 detection, coloring, automatic server download and
+  launch, API completions with reference documentation, and an unmatched closing
+  parenthesis diagnostic that cleared after correction.
+
+The broader manual checklist above remains useful for further testing; hover,
+signatures and definition navigation were covered by automated tests in this run.
+No REAPER compilation or audio validation is claimed.
