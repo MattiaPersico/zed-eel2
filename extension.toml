@@ -13,3 +13,13 @@ languages = ["EEL2"]
 [grammars.eel2]
 repository = "https://github.com/DyGriin/tree-sitter-eel2"
 rev = "97d4ad9b26390fe7c255d36765eda09a2b1ed73c"
+
+[[capabilities]]
+kind = "process:exec"
+command = "*"
+args = ["--version"]
+
+[[capabilities]]
+kind = "download_file"
+host = "github.com"
+path = ["MattiaPersico", "zed-eel2", "releases", "download", "*", "*"]

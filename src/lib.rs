@@ -9,7 +9,11 @@ const PYTHON_HELP: &str =
     "EEL2 requires Python 3.9+. Install Python or set lsp.eel2-lsp.binary.path in Zed.";
 
 fn supported_python(version: &str) -> bool {
-    let mut parts = version.trim().split('.');
+    let mut parts = version
+        .trim()
+        .strip_prefix("Python ")
+        .unwrap_or(version.trim())
+        .split('.');
     match (
         parts.next().and_then(|v| v.parse::<u32>().ok()),
         parts.next().and_then(|v| v.parse::<u32>().ok()),
@@ -31,11 +35,15 @@ fn valid_server(path: &Path) -> bool {
 
 fn check_python(command: &str, env: &[(String, String)]) -> Result<()> {
     let output = zed::process::Command::new(command)
-        .args(["-c", "import sys; print('%s.%s' % sys.version_info[:2])"])
+        .arg("--version")
         .envs(env.iter().cloned())
         .output()
         .map_err(|error| format!("Cannot start {command}: {error}. {PYTHON_HELP}"))?;
-    let version = String::from_utf8_lossy(&output.stdout);
+    let version = String::from_utf8_lossy(if output.stdout.is_empty() {
+        &output.stderr
+    } else {
+        &output.stdout
+    });
     if output.status != Some(0) || !supported_python(&version) {
         return Err(format!(
             "{command} is not a working Python 3.9+ interpreter. {PYTHON_HELP}"
@@ -160,7 +168,7 @@ mod tests {
         for version in ["2.7", "3.8", "", "not python"] {
             assert!(!supported_python(version));
         }
-        for version in ["3.9\n", "3.14", "3.10\r\n"] {
+        for version in ["3.9\n", "3.14", "3.10\r\n", "Python 3.9.6\n"] {
             assert!(supported_python(version));
         }
     }
