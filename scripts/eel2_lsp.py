@@ -6,7 +6,7 @@ from eel2_support.server import main
 
 if __name__ == "__main__":
     if "--version" in sys.argv:
-        print("eel2-lsp 0.1.0")
+        print("eel2-lsp 0.1.1")
     elif "--help" in sys.argv or "-h" in sys.argv:
         print("Usage: python3 eel2_lsp.py [--stdio | --version]\nLSP over standard input/output.")
     else:

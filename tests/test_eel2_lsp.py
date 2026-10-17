@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from eel2_support.language import Document, Workspace, TOKEN_TYPES
+from eel2_support.language import Document, Workspace, TOKEN_TYPES, uri_path
 from eel2_support.server import Server, read_message, write_message
 
 
@@ -32,6 +32,20 @@ class LanguageTests(unittest.TestCase):
         self.assertEqual([s.name for s in doc.symbols if s.kind == 12], ["real"])
         self.assertIn("gain", [s.name for s in doc.symbols])
         self.assertEqual(self.workspace.definition(doc, doc.text.rindex("gain"))[0]["range"]["start"]["line"], 1)
+
+    def test_unicode_paths_and_imports_round_trip(self):
+        folder = self.root / "café 🎵"
+        folder.mkdir()
+        library = folder / "gain.jsfx-inc"
+        library.write_text("function scale(x) (x);", encoding="utf-8")
+        self.assertEqual(uri_path(library.as_uri()), library)
+        doc = self.document('import "café 🎵/gain.jsfx-inc"\n@sample\nspl0=scale(1);')
+        self.assertEqual(self.workspace.definition(doc, doc.text.index('scale'))[0]['uri'], library.as_uri())
+
+    def test_local_assignment_does_not_hide_later_global(self):
+        doc = self.document('@init\nfunction f(x) local(value) (VALUE=x;);\nvalue=2;\n@sample\nspl0=value;')
+        target = self.workspace.definition(doc, doc.text.rindex('value'))[0]
+        self.assertEqual(target['range']['start']['line'], 2)
 
     def test_utf16_positions_and_crlf(self):
         doc = self.document('@init\r\n"🎵"; gain = 1;\r\n')
@@ -137,7 +151,10 @@ class LanguageTests(unittest.TestCase):
         real = self.root / 'library.jsfx-inc'
         alias = self.root / 'alias.jsfx-inc'
         real.write_text('@init\nfunction saved(x) (x);')
-        alias.symlink_to(real)
+        try:
+            alias.symlink_to(real)
+        except OSError as error:
+            self.skipTest("Symlinks unavailable on this runner: " + str(error))
         self.workspace.open(alias.as_uri(), '@init\nfunction unsaved(x) (x);', 2)
         doc = self.document('import library.jsfx-inc\n@sample\nunsaved(1);')
         target = self.workspace.definition(doc, doc.text.index('unsaved'))[0]
@@ -175,6 +192,8 @@ class LanguageTests(unittest.TestCase):
             self.assertTrue(self.workspace.definition(doc, doc.text.rindex('square')))
 
     def test_existing_effects_have_no_lexical_diagnostics(self):
+        if not (ROOT / 'effects').is_dir():
+            self.skipTest('Private effect collection is not part of the public extension')
         for path in (ROOT / 'effects').rglob('*'):
             if path.suffix in ('.jsfx', '.jsfx-inc'):
                 with self.subTest(path=path.name):
@@ -236,6 +255,39 @@ class ProtocolTests(unittest.TestCase):
         self.server.handle(dict(method='textDocument/didClose', params=dict(textDocument=dict(uri=self.uri))))
         self.assertEqual(self.messages()[0]['params']['diagnostics'], [])
         self.assertNotIn(self.uri, self.server.workspace.documents)
+
+    def test_unchanged_diagnostics_are_not_republished(self):
+        for uri in (self.uri, self.uri + '-other'):
+            self.server.handle(dict(method='textDocument/didOpen', params=dict(textDocument=dict(
+                uri=uri, version=1, text='@sample\nx=1;'))))
+        self.messages()
+        self.server.handle(dict(method='textDocument/didChange', params=dict(
+            textDocument=dict(uri=self.uri, version=2), contentChanges=[dict(text='@sample\nx=2;')])))
+        self.assertEqual(self.messages(), [])
+        self.server.handle(dict(method='textDocument/didChange', params=dict(
+            textDocument=dict(uri=self.uri, version=3), contentChanges=[dict(text='@sample\nx=(')])))
+        messages = self.messages()
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]['params']['uri'], self.uri)
+        self.assertEqual(messages[0]['params']['version'], 3)
+        self.assertTrue(messages[0]['params']['diagnostics'])
+
+    def test_unsaved_import_availability_updates_dependents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            effect = (root / 'effect.jsfx').as_uri()
+            library = (root / 'library.jsfx-inc').as_uri()
+            def open_buffer(uri, text):
+                self.server.handle(dict(method='textDocument/didOpen', params=dict(
+                    textDocument=dict(uri=uri, version=1, text=text))))
+            open_buffer(effect, 'import library.jsfx-inc\n@sample\nspl0=0;')
+            self.assertTrue(self.messages()[0]['params']['diagnostics'])
+            open_buffer(library, 'function f(x) (x);')
+            result = {m['params']['uri']: m['params']['diagnostics'] for m in self.messages()}
+            self.assertEqual(result[effect], [])
+            self.server.handle(dict(method='textDocument/didClose', params=dict(textDocument=dict(uri=library))))
+            result = {m['params']['uri']: m['params']['diagnostics'] for m in self.messages()}
+            self.assertTrue(result[effect])
 
     def test_incremental_edits_use_utf16_and_apply_sequentially(self):
         self.server.workspace.open(self.uri, '@sample\n"🎵"; x=1;', 1)

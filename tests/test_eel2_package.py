@@ -10,7 +10,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from package_eel2 import build, version
+from package_eel2 import build, version, EXTENSION
 from eel2_support.server import read_message, write_message
 
 
@@ -28,8 +28,13 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 build(first)
 
+    def test_packaged_server_matches_adapter_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            digest = build(Path(directory) / "server.pyz")
+            self.assertEqual(digest, (EXTENSION / "server.sha256").read_text().strip())
+
     def test_downloaded_archive_runs_without_workspace_or_site_packages(self):
-        with tempfile.TemporaryDirectory(prefix="eel2 clean machine ") as directory:
+        with tempfile.TemporaryDirectory(prefix="eel2 café 🎵 ") as directory:
             archive = Path(directory) / ("eel2-lsp-v" + version() + ".pyz")
             build(archive)
             result = subprocess.run([sys.executable, "-S", str(archive), "--version"],
@@ -44,7 +49,9 @@ class ReleaseTests(unittest.TestCase):
                                     input=frames.getvalue(), cwd=directory, capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             output = io.BytesIO(result.stdout)
-            self.assertIn("capabilities", read_message(output)["result"])
+            initialized = read_message(output)["result"]
+            self.assertIn("capabilities", initialized)
+            self.assertEqual(initialized["serverInfo"]["version"], version())
             self.assertIsNone(read_message(output)["result"])
             self.assertIsNone(read_message(output))
             self.assertEqual(result.stderr, b"")

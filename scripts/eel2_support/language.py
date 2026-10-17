@@ -4,7 +4,8 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from .catalog import BUILTINS, SECTIONS
 
@@ -29,7 +30,7 @@ def uri_path(uri):
     parsed = urlparse(uri)
     if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
         return None
-    return Path(unquote(parsed.path))
+    return Path(url2pathname(parsed.path))
 
 
 def utf16(text):
@@ -67,6 +68,7 @@ class Symbol:
 class Document:
     def __init__(self, uri, text, version=None):
         self.uri, self.text, self.version = uri, text, version
+        self.canonical_uri = canonical_uri(uri)
         self.starts = [0] + [m.end() for m in re.finditer("\n", text)]
         self.tokens, self.sections, self.imports, self.symbols = [], [], [], []
         self.issues, self.pairs = [], {}
@@ -234,12 +236,17 @@ class Document:
                 self.symbols.append(Symbol(local.value, local, 13, "Function variable: " + local.value,
                                            local.end, section, scope=(token.start, body_end)))
                 declarations.add(local.start)
+        # Look up only scopes for the assigned name, not every symbol collected so far.
+        local_scopes = {}
+        for symbol in self.symbols:
+            if symbol.scope:
+                local_scopes.setdefault(symbol.name.lower(), []).append(symbol.scope)
         globals_seen = {s.name.lower() for s in self.symbols if s.kind == 13 and not s.scope}
         for i, token in enumerate(code[:-1]):
             if token.kind != "identifier" or token.start in declarations or code[i + 1].value not in ASSIGN:
                 continue
-            if any(s.name.lower() == token.value.lower() and s.scope and
-                   s.scope[0] <= token.start <= s.scope[1] for s in self.symbols):
+            if any(start <= token.start <= end
+                   for start, end in local_scopes.get(token.value.lower(), ())):
                 continue
             if token.value.lower() in globals_seen:
                 continue
@@ -317,7 +324,7 @@ class Workspace:
             return self.documents[uri]
         canonical = canonical_uri(uri)
         for key, document in self.documents.items():
-            if canonical_uri(key) == canonical:
+            if document.canonical_uri == canonical:
                 return document
         path = uri_path(uri)
         if path is None:

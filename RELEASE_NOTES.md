@@ -1,10 +1,13 @@
-Initial EEL2 / JSFX editor support for Zed.
+# EEL2 / JSFX v0.1.1
 
-- Completion, hover documentation, signature help and go to definition.
-- Local JSFX imports and unsaved buffers.
-- Basic structural diagnostics and semantic coloring.
-- Automatic download of the versioned, portable Python language server.
+- Check Python 3.9+ before startup, with fallback between detected interpreters.
+- Verify downloaded and cached servers against an embedded SHA-256 digest;
+  recover damaged caches and provide actionable download errors.
+- Correct file URI conversion on Windows, including paths with Unicode and spaces.
+- Remove quadratic assignment indexing, duplicate parsing after edits, and
+  unnecessary diagnostic work for unrelated buffers.
+- Test Python 3.9 and 3.14 on Linux, macOS and Windows; add a reproducible benchmark.
 
-Python 3.9+ is required. This release does not compile EEL2 or validate DSP.
-The GitHub release alone does not make the extension available in Zed's catalog;
-registry submission and acceptance are separate steps.
+Python 3.9+ remains required. Diagnostics are structural editor hints, not EEL2
+compiler or audio validation. Zed catalog inclusion is pending human submission
+and maintainer acceptance.

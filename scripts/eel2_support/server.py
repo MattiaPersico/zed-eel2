@@ -58,12 +58,17 @@ class Server:
         self.workspace = Workspace()
         self.initialized = False
         self.shutdown = False
+        self.published = {}
 
     def send(self, **message):
         write_message(self.output, dict(jsonrpc="2.0", **message))
 
     def publish(self, document):
-        params = dict(uri=document.uri, diagnostics=self.workspace.diagnostics(document))
+        diagnostics = self.workspace.diagnostics(document)
+        if self.published.get(document.uri) == diagnostics:
+            return
+        self.published[document.uri] = diagnostics
+        params = dict(uri=document.uri, diagnostics=diagnostics)
         if document.version is not None:
             params["version"] = document.version
         self.send(method="textDocument/publishDiagnostics", params=params)
@@ -83,7 +88,7 @@ class Server:
         if method == "initialize" and request and not self.initialized:
             self.initialized = True
             self.send(id=message["id"], result=dict(
-                serverInfo=dict(name="MTT EEL2 Language Server", version="0.1.0"),
+                serverInfo=dict(name="MTT EEL2 Language Server", version="0.1.1"),
                 capabilities=dict(
                     positionEncoding="utf-16",
                     textDocumentSync=dict(openClose=True, change=1, save=dict(includeText=False)),
@@ -123,12 +128,17 @@ class Server:
                     else:
                         text = change["text"]
                         document = Document(value["uri"], text)
-                self.workspace.open(value["uri"], text, value.get("version"))
-                self.publish_all()
+                # The final edit already produced the index; do not parse it twice.
+                document.version = value.get("version")
+                self.workspace.documents[value["uri"]] = document
+                # Diagnostics check this buffer's structure and import availability,
+                # not imported contents. Opening/closing/saving still rechecks all.
+                self.publish(document)
         elif method == "textDocument/didClose":
             uri = params["textDocument"]["uri"]
             self.workspace.documents.pop(uri, None)
             self.workspace.disk_cache.pop(uri, None)
+            self.published.pop(uri, None)
             self.send(method="textDocument/publishDiagnostics", params=dict(uri=uri, diagnostics=[]))
             self.publish_all()
         elif method in {"textDocument/didSave", "workspace/didChangeWatchedFiles"}:

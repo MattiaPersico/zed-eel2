@@ -31,10 +31,10 @@ def build(output):
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("xb") as stream:
-        with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:
             for path, name in sorted(sources, key=lambda item: item[1]):
                 info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
-                info.compress_type = zipfile.ZIP_DEFLATED
+                info.compress_type = zipfile.ZIP_STORED
                 info.external_attr = 0o100644 << 16
                 archive.writestr(info, path.read_bytes())
     return hashlib.sha256(output.read_bytes()).hexdigest()

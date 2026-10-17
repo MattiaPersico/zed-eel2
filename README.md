@@ -13,7 +13,14 @@ Python **3.9 or newer** must be available to Zed as `python3` or `python`.
 Rust is not required to use the published extension. On first use the extension
 downloads its matching `eel2-lsp-vX.Y.Z.pyz` release from this repository and caches
 it in Zed's extension work directory. Subsequent starts use that cached version.
-No workspace copy or hardcoded path is needed.
+No workspace copy or hardcoded path is needed. Python's version is checked before
+startup; if automatic detection finds an incompatible `python3`, it also tries
+`python`. An explicitly configured interpreter is never silently replaced.
+
+The adapter checks the server archive against a SHA-256 digest embedded at build
+time. A damaged cache is downloaded again and only replaced after verification.
+A valid cached server can start offline. If a download fails, restore connectivity
+and restart the language server from Zed's command palette.
 
 Open a `.jsfx`, `.jsfx-inc`, `.eel` or `.eel2` file. For JSFX header coloring, add
 this to your existing Zed settings:
@@ -58,11 +65,15 @@ compilation and audio testing.
 ```sh
 python3 -m unittest discover -s tests -v
 python3 scripts/package_eel2.py
-cargo check --locked
+cargo test --locked
+python3 scripts/benchmark_eel2.py
 ```
 
 `package_eel2.py` creates a reproducible Python zip application under `dist/` and
-refuses overwrites. Launch it with `python3 dist/eel2-lsp-v0.1.0.pyz --stdio`.
+refuses overwrites. The archive uses fixed metadata and no compression so its
+checksum is identical across platforms and Python versions. After changing server
+sources, generate a temporary archive and update `server.sha256` with the printed
+digest; tests reject a stale checksum. Launch it with `python3 dist/eel2-lsp-v0.1.1.pyz --stdio`.
 No third-party Python modules are needed, and packaging includes only the server.
 
 For development installation in Zed, install a Rust toolchain with the
@@ -73,7 +84,7 @@ release is available. See [Zed's development guide](https://zed.dev/docs/extensi
 
 ## Releases and catalog submission
 
-GitHub Actions tests the Python server and builds the WebAssembly adapter on pushes
+GitHub Actions tests Python 3.9 and 3.14 on Linux, macOS and Windows, and builds the WebAssembly adapter on pushes
 and pull requests. A `vX.Y.Z` tag additionally creates a GitHub release, after both
 jobs succeed, containing the portable server and compiled adapter.
 
