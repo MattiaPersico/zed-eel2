@@ -55,28 +55,38 @@ Files containing `<? ... ?>` preprocessing disable structural diagnostics,
 because the generated EEL2 may have a different structure. Completion/navigation
 still operate approximately on the source; the preprocessor is never executed.
 
-The pinned [DyGriin EEL2 Tree-sitter grammar](https://github.com/DyGriin/tree-sitter-eel2/tree/97d4ad9b26390fe7c255d36765eda09a2b1ed73c)
-parses core EEL2 rather than complete JSFX headers. Its outline, indentation and
-bracket features may be incomplete around headers and newer syntax. Full LSP
-semantic coloring is enabled to avoid relying on that grammar for JSFX colors.
-Zed's outline uses Tree-sitter; LSP document symbols are available to other clients
-but do not replace Zed's native outline. Tree-sitter parse errors are not published
-as LSP diagnostics.
+The maintained [EEL2 / JSFX grammar](../grammar/README.md) extends the original
+MIT-licensed DyGriin grammar. Metadata, slider declarations, imports and section
+bodies are recognized directly. Zed's native outline nests functions under their
+section. Indentation and function/section text objects use the same syntax tree.
+Preprocessor blocks remain opaque; generated code cannot be indexed. Tree-sitter
+errors are not published as LSP diagnostics.
 
 
 ## Recorded validation
 
-Validation on 2026-10-18 for version 0.1.1: the standalone suite
-runs 32 tests with one expected skip for the private effect collection. All six
-Python 3.9/3.14 combinations on Linux, macOS and Windows pass, as do the two Rust
-unit tests and the `wasm32-wasip2` build. The [release workflow](https://github.com/MattiaPersico/zed-eel2/actions/runs/39118378203)
-completed successfully at source commit `c698b4e0a29a1169f6bda7ec7ac25b6543da18d1`.
+Validation on 2026-10-18 for 0.2.0: the standalone
+suite runs 36 tests with one expected skip for the private effect collection.
+All six Python 3.9/3.14 combinations on Linux, macOS and Windows pass, as do the
+two Rust tests, grammar tests and `wasm32-wasip2` build in
+[the candidate workflow](https://github.com/MattiaPersico/zed-eel2/actions/runs/39152882355).
+The tested source commit is `dff19ac9ee426ad1f07eebec016470ab133538a0` and the grammar
+pin is `1e40912221af48ee7165dbd8f97ab419a36fb4e0`. Seven corpus cases cover JSFX and
+plain EEL; additional checks compile every Zed query, assert outline boundaries
+and parse CRLF input. The owner's workspace effects/includes also parse without errors.
+This is syntax-tree validation, not REAPER compilation.
 
-Manual testing in Zed 1.24.2 on macOS arm64 confirmed EEL2 detection and coloring,
-`sin` hover documentation, definition navigation to a local function, a declared
-slider and an imported function, and completion plus explicit signature help for
-an imported function renamed in an unsaved buffer. An unmatched-parenthesis
-diagnostic appeared and cleared after correction. Cached startup passed; after
-intentionally corrupting a backed-up server cache, restarting the server downloaded
-the released archive, restored the expected SHA-256 digest and launched successfully.
-Test files were restored. No REAPER compilation or audio test was performed.
+Manual testing in Zed 1.24.2 on macOS arm64 confirmed grammar-only coloring with
+semantic tokens disabled in an isolated project. The symbol picker showed slider
+declarations, sections and a function nested under its section. Tests also passed
+for `gfx_blit` hover/reference documentation, `gfx_roundrect` completion, automatic
+indentation inside a function body, and MIDI signature help selecting the four-
+argument form and highlighting `msg3`. Temporary test files were restored.
+Text-object queries passed automated checks; Vim-mode motions were not manually tested.
+
+The same startup/download adapter was previously verified in 0.1.1, including
+recovery from a deliberately damaged cache. Version 0.2.0's editor smoke test used
+a preloaded archive verified against its pinned checksum. The 10,000-assignment
+benchmark measured approximately 111/113/14 ms for parse/edit/completion on this Mac;
+these are synthetic measurements, not a latency guarantee.
+No REAPER compilation or audio test was performed.
