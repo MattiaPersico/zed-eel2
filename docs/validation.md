@@ -66,16 +66,17 @@ as LSP diagnostics.
 
 ## Recorded validation
 
-On 2026-10-16, version 0.1.0 at commit
-`7416e49b55a0f127ac83d1b730ff1cf3a903a1f7` passed:
+Validation on 2026-10-18 for version 0.1.1: the standalone suite
+runs 32 tests with one expected skip for the private effect collection. All six
+Python 3.9/3.14 combinations on Linux, macOS and Windows pass, as do the two Rust
+unit tests and the `wasm32-wasip2` build. The [release workflow](https://github.com/MattiaPersico/zed-eel2/actions/runs/39118378203)
+completed successfully at source commit `c698b4e0a29a1169f6bda7ec7ac25b6543da18d1`.
 
-- 27 standalone Python tests, native Rust checking and the GitHub Actions
-  `wasm32-wasip2` release build.
-- Manual smoke testing in Zed 1.24.2 on macOS arm64, using the released adapter
-  and pinned grammar: EEL2 detection, coloring, automatic server download and
-  launch, API completions with reference documentation, and an unmatched closing
-  parenthesis diagnostic that cleared after correction.
-
-The broader manual checklist above remains useful for further testing; hover,
-signatures and definition navigation were covered by automated tests in this run.
-No REAPER compilation or audio validation is claimed.
+Manual testing in Zed 1.24.2 on macOS arm64 confirmed EEL2 detection and coloring,
+`sin` hover documentation, definition navigation to a local function, a declared
+slider and an imported function, and completion plus explicit signature help for
+an imported function renamed in an unsaved buffer. An unmatched-parenthesis
+diagnostic appeared and cleared after correction. Cached startup passed; after
+intentionally corrupting a backed-up server cache, restarting the server downloaded
+the released archive, restored the expected SHA-256 digest and launched successfully.
+Test files were restored. No REAPER compilation or audio test was performed.
