@@ -88,7 +88,7 @@ class Server:
         if method == "initialize" and request and not self.initialized:
             self.initialized = True
             self.send(id=message["id"], result=dict(
-                serverInfo=dict(name="MTT EEL2 Language Server", version="0.1.1"),
+                serverInfo=dict(name="MTT EEL2 Language Server", version="0.2.0"),
                 capabilities=dict(
                     positionEncoding="utf-16",
                     textDocumentSync=dict(openClose=True, change=1, save=dict(includeText=False)),

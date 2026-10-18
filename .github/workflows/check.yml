@@ -32,6 +32,20 @@ jobs:
           name: eel2-server
           path: dist/*.pyz
           if-no-files-found: error
+  grammar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix .grammar-tools --no-audit --no-fund tree-sitter-cli@0.25.10
+      - name: Check generated parser
+        working-directory: grammar
+        run: |
+          ../.grammar-tools/node_modules/.bin/tree-sitter generate --abi 14
+          git diff --exit-code -- src
+      - run: python3 scripts/check_eel2_grammar.py --cli "$GITHUB_WORKSPACE/.grammar-tools/node_modules/.bin/tree-sitter"
   build:
     runs-on: ubuntu-latest
     steps:
@@ -47,7 +61,7 @@ jobs:
           if-no-files-found: error
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, build]
+    needs: [test, grammar, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write

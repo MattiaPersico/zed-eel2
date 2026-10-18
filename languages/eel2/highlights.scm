@@ -8,3 +8,9 @@
 ["function" "while" "local" "static" "instance" "global" "globals"] @keyword
 ["(" ")" "[" "]"] @punctuation.bracket
 [";" ","] @punctuation.delimiter
+(metadata) @attribute
+(slider) @property
+(import) @keyword
+(section_header) @keyword
+(preprocessor) @preproc
+(namespace_parameter) @variable.parameter

@@ -22,7 +22,7 @@ time. A damaged cache is downloaded again and only replaced after verification.
 A valid cached server can start offline. If a download fails, restore connectivity
 and restart the language server from Zed's command palette.
 
-Open a `.jsfx`, `.jsfx-inc`, `.eel` or `.eel2` file. For JSFX header coloring, add
+Open a `.jsfx`, `.jsfx-inc`, `.eel` or `.eel2` file. For semantic coloring in addition to the grammar highlighting, add
 this to your existing Zed settings:
 
 ```json
@@ -43,7 +43,9 @@ The argument list is passed directly and supports paths containing spaces.
 
 ## Capabilities and limits
 
-- Completion for a curated JSFX API catalog, functions, assigned variables and sliders.
+- Completion and reference help for 129 JSFX functions, plus variables, sliders and user functions.
+- A JSFX-aware outline containing slider declarations, sections and nested functions.
+- Grammar-based block/argument indentation and section/function text objects.
 - Hover with official REAPER links; built-in and user-function signature help.
 - Definitions in the current document and local imports, including unsaved buffers.
 - Case-insensitive lookup and basic function-local/section visibility.
@@ -54,11 +56,11 @@ cannot establish correct compilation or audio behavior. There is no rename,
 formatter, reference search, type checking or complete JSFX/ReaScript API model.
 See [limitations and editor smoke test](docs/validation.md).
 
-The [core EEL2 Tree-sitter grammar](https://github.com/DyGriin/tree-sitter-eel2)
-is pinned in `extension.toml`. It does not fully parse JSFX metadata; its native
-Zed outline and indentation can be incomplete around headers and newer syntax.
-Full semantic coloring is recommended. REAPER is still needed for final effect
-compilation and audio testing.
+The maintained [EEL2 / JSFX grammar](grammar/README.md) extends the MIT-licensed
+DyGriin grammar. Its source revision is pinned in `extension.toml`. JSFX metadata,
+file/list sliders, imports and section bodies are represented directly in the tree.
+Preprocessor blocks remain opaque; generated structures cannot be indexed.
+REAPER is still needed for final effect compilation and audio testing.
 
 ## Development
 
@@ -67,13 +69,14 @@ python3 -m unittest discover -s tests -v
 python3 scripts/package_eel2.py
 cargo test --locked
 python3 scripts/benchmark_eel2.py
+python3 scripts/check_eel2_grammar.py --cli /absolute/path/to/tree-sitter
 ```
 
 `package_eel2.py` creates a reproducible Python zip application under `dist/` and
 refuses overwrites. The archive uses fixed metadata and no compression so its
 checksum is identical across platforms and Python versions. After changing server
 sources, generate a temporary archive and update `server.sha256` with the printed
-digest; tests reject a stale checksum. Launch it with `python3 dist/eel2-lsp-v0.1.1.pyz --stdio`.
+digest; tests reject a stale checksum. Launch it with `python3 dist/eel2-lsp-v0.2.0.pyz --stdio`.
 No third-party Python modules are needed, and packaging includes only the server.
 
 For development installation in Zed, install a Rust toolchain with the
@@ -84,9 +87,10 @@ release is available. See [Zed's development guide](https://zed.dev/docs/extensi
 
 ## Releases and catalog submission
 
-GitHub Actions tests Python 3.9 and 3.14 on Linux, macOS and Windows, and builds the WebAssembly adapter on pushes
-and pull requests. A `vX.Y.Z` tag additionally creates a GitHub release, after both
-jobs succeed, containing the portable server and compiled adapter.
+GitHub Actions tests Python 3.9 and 3.14 on Linux, macOS and Windows, validates the
+grammar and Zed queries, and builds the WebAssembly adapter on pushes
+and pull requests. A `vX.Y.Z` tag additionally creates a GitHub release, after all
+checks succeed, containing the portable server and compiled adapter.
 
 Keep the versions in `extension.toml`, `Cargo.toml`/`Cargo.lock`, and the Python
 server's version strings aligned before tagging. The adapter downloads the exact
@@ -101,5 +105,6 @@ Catalog acceptance is controlled by Zed's maintainers.
 
 ## License
 
-MIT. Copyright 2026 Mattia Persico. The external Tree-sitter grammar is separately
-MIT-licensed by DyGriin. Its source and license remain in its upstream repository.
+MIT. Copyright 2026 Mattia Persico. The original Tree-sitter grammar is separately
+MIT-licensed by DyGriin. Its retained license and the maintained source are under
+`grammar/`; modifications are also MIT-licensed.

@@ -24,6 +24,57 @@ class LanguageTests(unittest.TestCase):
     def document(self, text, name="effect.jsfx"):
         return self.workspace.open((self.root / name).as_uri(), text, 1)
 
+    def test_expanded_catalog_completion_hover_and_signature(self):
+        cases = [
+            ("gfx_blit", "gfx.php", "source", "rotation_y_optional"),
+            ("strcpy_substr", "strings.php", "destination", "max_length"),
+            ("mem_get_values", "advfunc.php", "buffer", "..."),
+            ("midirecv_str", "midi.php", "offset", "string"),
+            ("file_riff", "file.php", "handle", "sample_rate"),
+            ("slider_next_chg", "vars.php", "slider_index", "next_value"),
+        ]
+        for name, page, first, last in cases:
+            with self.subTest(name=name):
+                doc = self.document("@init\n" + name + "(")
+                completion = self.workspace.completion(doc, len(doc.text) - 1)
+                self.assertIn(name, [item["label"] for item in completion])
+                hover = self.workspace.hover(doc, doc.text.index(name))
+                self.assertIn("https://www.reaper.fm/sdk/js/" + page, hover["contents"]["value"])
+                signature = self.workspace.signature(doc, len(doc.text))
+                params = signature["signatures"][0]["parameters"]
+                self.assertEqual(params[0]["label"], first)
+                self.assertEqual(params[-1]["label"], last)
+
+    def test_midi_overloads_select_four_argument_form(self):
+        for name in ("midisend", "midirecv"):
+            doc = self.document("@block\n" + name + "(0, 144, 60, ")
+            result = self.workspace.signature(doc, len(doc.text))
+            self.assertEqual(len(result["signatures"]), 2)
+            self.assertEqual(result["activeSignature"], 1)
+            self.assertEqual(result["activeParameter"], 3)
+            self.assertIn("msg23", self.workspace.hover(doc, doc.text.index(name))["contents"]["value"])
+            short = self.document("@block\n" + name + "(0, 144, ")
+            self.assertEqual(self.workspace.signature(short, len(short.text))["activeSignature"], 0)
+
+    def test_local_function_overrides_builtin_overloads(self):
+        doc = self.document("@init\nfunction midisend(x) (x);\nmidisend(")
+        result = self.workspace.signature(doc, len(doc.text))
+        self.assertEqual(len(result["signatures"]), 1)
+        self.assertEqual(result["signatures"][0]["label"], "midisend(x)")
+
+    def test_optional_variadic_and_zero_argument_signatures(self):
+        for source, expected in [("time_precise(", "output_optional"),
+                                 ("stack_pop(", "output_optional"),
+                                 ("gfx_printf(1,2,3,", "...")]:
+            doc = self.document("@init\n" + source)
+            result = self.workspace.signature(doc, len(doc.text))
+            params = result["signatures"][0]["parameters"]
+            self.assertEqual(params[result["activeParameter"]]["label"], expected)
+        doc = self.document("@init\nget_host_numchan(")
+        result = self.workspace.signature(doc, len(doc.text))
+        self.assertEqual(result["signatures"][0]["parameters"], [])
+        self.assertNotIn("activeParameter", result)
+
     def test_headers_are_not_eel2_and_comments_do_not_create_symbols(self):
         doc = self.document('desc:A (strange "title\nslider1:gain=0<0,1>Gain (dB)\n'
                             '@init\n// function fake(x) (x);\n/* @bad [ */\n'

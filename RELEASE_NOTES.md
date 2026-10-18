@@ -1,13 +1,16 @@
-# EEL2 / JSFX v0.1.1
+# EEL2 / JSFX v0.2.0
 
-- Check Python 3.9+ before startup, with fallback between detected interpreters.
-- Verify downloaded and cached servers against an embedded SHA-256 digest;
-  recover damaged caches and provide actionable download errors.
-- Correct file URI conversion on Windows, including paths with Unicode and spaces.
-- Remove quadratic assignment indexing, duplicate parsing after edits, and
-  unnecessary diagnostic work for unrelated buffers.
-- Test Python 3.9 and 3.14 on Linux, macOS and Windows; add a reproducible benchmark.
+- Add a JSFX-aware Tree-sitter grammar: metadata and sliders no longer disrupt
+  parsing; Zed's outline shows sliders and sections with their nested functions.
+- Improve block/argument indentation and add function/section text objects.
+- Handle numeric exponents, empty function bodies and namespace parameters in
+  the grammar; keep preprocessing opaque and never execute it.
+- Expand the JSFX catalog from 63 to 129 functions, including graphics, strings,
+  MIDI, memory, file access, routing and sample-accurate automation.
+- Show both MIDI signatures and select the four-argument form when appropriate.
+- Add grammar corpus/query checks to the release gates alongside the existing
+  six-platform/Python combinations and Rust checks.
 
-Python 3.9+ remains required. Diagnostics are structural editor hints, not EEL2
-compiler or audio validation. Zed catalog inclusion is pending human submission
-and maintainer acceptance.
+Python 3.9+ remains required. This is editor support, not compiler or audio
+validation. References, rename and automatic formatting remain future work.
+Catalog inclusion is pending human submission and maintainer acceptance.

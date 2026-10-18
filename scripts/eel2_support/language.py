@@ -7,7 +7,7 @@ import re
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
-from .catalog import BUILTINS, SECTIONS
+from .catalog import BUILTINS, OVERLOADS, SECTIONS
 
 IDENT = r"(?:[A-Za-z_][A-Za-z_0-9.]*|\#[A-Za-z_0-9.]*|\$(?:pi|phi|e))"
 LEX = re.compile(
@@ -437,7 +437,11 @@ class Workspace:
             builtin = BUILTINS.get(token.value.lower())
             if not builtin:
                 return None
-            value = "```eel2\n" + builtin["detail"] + "\n```\n\n" + builtin["documentation"]["value"]
+            labels = [builtin["detail"]]
+            if token.value.lower() in OVERLOADS:
+                labels = [builtin["label"] + "(" + ", ".join(params) + ")"
+                          for params in OVERLOADS[token.value.lower()]]
+            value = "```eel2\n" + "\n".join(labels) + "\n```\n\n" + builtin["documentation"]["value"]
         return dict(contents=dict(kind="markdown", value=value), range=document.range(token.start, token.end))
 
     def definition(self, document, offset):
@@ -482,13 +486,25 @@ class Workspace:
             if matches:
                 symbol = matches[0][1]
                 label, params, documentation = symbol.detail, symbol.parameters, None
+                variants = [params]
             else:
                 builtin = BUILTINS.get(name.lower())
                 if not builtin or builtin["parameters"] is None:
                     continue
                 label, params, documentation = builtin["detail"], builtin["parameters"], builtin["documentation"]
-            signature = dict(label=label, parameters=[dict(label=p) for p in params])
-            if documentation:
-                signature["documentation"] = documentation
-            return dict(signatures=[signature], activeSignature=0, activeParameter=min(argument, max(0, len(params) - 1)))
+                variants = OVERLOADS.get(name.lower(), [params])
+            signatures = []
+            for variant in variants:
+                variant_label = label if len(variants) == 1 else name + "(" + ", ".join(variant) + ")"
+                signature = dict(label=variant_label, parameters=[dict(label=p) for p in variant])
+                if documentation:
+                    signature["documentation"] = documentation
+                signatures.append(signature)
+            active_signature = next((i for i, variant in enumerate(variants)
+                                     if argument < len(variant)), len(variants) - 1)
+            count = len(variants[active_signature])
+            result = dict(signatures=signatures, activeSignature=active_signature)
+            if count:
+                result["activeParameter"] = min(argument, count - 1)
+            return result
         return None
