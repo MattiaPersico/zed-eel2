@@ -1,0 +1,7 @@
+  desc:Indented
+  slider1:1<0,1>Gain
+  @init
+  @slider
+  @sample
+  spl0=1;
+  @gfx 100 100

@@ -1,0 +1,11 @@
+@init
+function scale(x) (x*2)
+x = 0;
+loop(4, x += 1;);
+while(x > 0) (x -= 1;);
+x ? (a=1; b=2;) : a=0;
+buffer[3] = $x90;
+gmem[] = $~7;
+y = 'abcd';
+@sample
+spl(0) = buffer[3];

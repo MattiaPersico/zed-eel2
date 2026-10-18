@@ -1,0 +1,363 @@
+==================
+JSFX headers, sliders and section ownership
+==================
+desc:Filter (stereo) "free text // not a comment
+options:gmem=filter maxmem=1000000
+in_pin:left
+out_pin:left
+filename:0,assets/picture.png
+slider1:gain=0.5<0,1,0.01>Gain (dB)
+slider2:0<0,2,1{Off,Low,High}>Mode
+slider3:/samples:default.wav:Sample file
+import "helpers/café gain.jsfx-inc"
+@init
+function scale(x amount) (x * amount);
+@slider
+gain2 = gain * gain;
+@block
+samples = samplesblock;
+@sample
+spl0 = scale(spl0, gain2)
+@serialize
+file_var(0, gain);
+@gfx 640 480
+gfx_rect(0,0,10,10);
+
+---
+
+(program
+  (metadata)
+  (metadata)
+  (metadata)
+  (metadata)
+  (metadata)
+  (slider)
+  (slider)
+  (slider)
+  (import)
+  (section
+    (section_header)
+    (section_body
+      (function_def
+        (identifier)
+        (parameter_list
+          (identifier)
+          (identifier))
+        (parenthesized
+          (binary
+            (identifier)
+            (identifier))))))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (binary
+          (identifier)
+          (identifier)))))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (identifier))))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (function_call
+          (identifier)
+          (argument_list
+            (argument
+              (identifier))
+            (argument
+              (identifier)))))))
+  (section
+    (section_header)
+    (section_body
+      (function_call
+        (identifier)
+        (argument_list
+          (argument
+            (number))
+          (argument
+            (identifier))))))
+  (section
+    (section_header)
+    (section_body
+      (function_call
+        (identifier)
+        (argument_list
+          (argument
+            (number))
+          (argument
+            (number))
+          (argument
+            (number))
+          (argument
+            (number)))))))
+
+==================
+Header-like text inside strings and comments is not structural
+==================
+desc:Guard
+@init
+/*
+@sample
+slider1:bad
+*/
+x = "@gfx
+desc:not metadata";
+// @block
+@gfx
+#text = "slider1:fake";
+
+---
+
+(program
+  (metadata)
+  (section
+    (section_header)
+    (comment)
+    (section_body
+      (assignment
+        (identifier)
+        (string))))
+  (comment)
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (string_identifier)
+        (string)))))
+
+==================
+Indented headers and empty sections
+==================
+  desc:Indented
+  slider1:1<0,1>Gain
+  @init
+  @slider
+  @sample
+  spl0=1;
+  @gfx 100 100
+
+---
+
+(program
+  (metadata)
+  (slider)
+  (section
+    (section_header))
+  (section
+    (section_header))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (number))))
+  (section
+    (section_header)))
+
+==================
+Plain EEL and imports without JSFX headers
+==================
+import helper.jsfx-inc
+function empty() ()
+function scoped(x*) instance(y) global(*) local(z) (z=x.y; y=z;)
+value = 1e-6 + .2E+3;
+empty();
+
+---
+
+(program
+  (section_body
+    (import)
+    (function_def
+      (identifier)
+      (parameter_list)
+      (parenthesized))
+    (function_def
+      (identifier)
+      (parameter_list
+        (namespace_parameter
+          (identifier)))
+      (instance_table
+        (parameter_list
+          (identifier)))
+      (global_table
+        (parameter_list))
+      (local_table
+        (parameter_list
+          (identifier)))
+      (parenthesized
+        (assignment
+          (identifier)
+          (identifier))
+        (assignment
+          (identifier)
+          (identifier))))
+    (assignment
+      (identifier)
+      (binary
+        (number)
+        (number)))
+    (function_call
+      (identifier)
+      (argument_list))))
+
+==================
+Preprocessor is opaque and not executed
+==================
+desc:Generated
+<? printf("slider1:0<0,1>Gain\n"); ?>
+@init
+<? printf("x=1;\n"); ?>
+y = 1;
+@sample
+spl0=y;
+
+---
+
+(program
+  (metadata)
+  (preprocessor)
+  (section
+    (section_header)
+    (preprocessor)
+    (section_body
+      (assignment
+        (identifier)
+        (number))))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (identifier)))))
+
+==================
+Branches, loops, memory and optional semicolons
+==================
+@init
+function scale(x) (x*2)
+x = 0;
+loop(4, x += 1;);
+while(x > 0) (x -= 1;);
+x ? (a=1; b=2;) : a=0;
+buffer[3] = $x90;
+gmem[] = $~7;
+y = 'abcd';
+@sample
+spl(0) = buffer[3];
+
+---
+
+(program
+  (section
+    (section_header)
+    (section_body
+      (function_def
+        (identifier)
+        (parameter_list
+          (identifier))
+        (parenthesized
+          (binary
+            (identifier)
+            (number))))
+      (assignment
+        (identifier)
+        (number))
+      (function_call
+        (identifier)
+        (argument_list
+          (argument
+            (number))
+          (argument
+            (assignment
+              (identifier)
+              (number)))))
+      (while
+        (parenthesized
+          (binary
+            (identifier)
+            (number)))
+        (parenthesized
+          (assignment
+            (identifier)
+            (number))))
+      (conditional
+        (identifier)
+        (parenthesized
+          (assignment
+            (identifier)
+            (number))
+          (assignment
+            (identifier)
+            (number)))
+        (assignment
+          (identifier)
+          (number)))
+      (assignment
+        (index
+          (identifier)
+          (argument
+            (number)))
+        (number))
+      (assignment
+        (index
+          (identifier))
+        (number))
+      (assignment
+        (identifier)
+        (number))))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (function_call
+          (identifier)
+          (argument_list
+            (argument
+              (number))))
+        (index
+          (identifier)
+          (argument
+            (number)))))))
+
+==================
+Adjacent sections following expressions without semicolons
+==================
+@init
+x=1
+@slider
+x=2
+@sample
+spl0=x
+@gfx
+
+---
+
+(program
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (number))))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (number))))
+  (section
+    (section_header)
+    (section_body
+      (assignment
+        (identifier)
+        (identifier))))
+  (section
+    (section_header)))

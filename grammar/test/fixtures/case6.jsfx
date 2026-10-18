@@ -1,0 +1,7 @@
+@init
+x=1
+@slider
+x=2
+@sample
+spl0=x
+@gfx

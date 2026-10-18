@@ -1,0 +1,7 @@
+desc:Generated
+<? printf("slider1:0<0,1>Gain\n"); ?>
+@init
+<? printf("x=1;\n"); ?>
+y = 1;
+@sample
+spl0=y;

@@ -1,0 +1,11 @@
+desc:Guard
+@init
+/*
+@sample
+slider1:bad
+*/
+x = "@gfx
+desc:not metadata";
+// @block
+@gfx
+#text = "slider1:fake";

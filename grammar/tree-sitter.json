@@ -1,0 +1,4 @@
+{
+  "grammars": [{"name": "eel2", "camelcase": "Eel2", "scope": "source.eel2", "path": ".", "file-types": ["eel", "eel2", "jsfx", "jsfx-inc"]}],
+  "metadata": {"version": "0.2.0", "license": "MIT", "description": "EEL2 and JSFX grammar", "authors": [{"name": "DyGriin"}, {"name": "Mattia Persico"}]}
+}

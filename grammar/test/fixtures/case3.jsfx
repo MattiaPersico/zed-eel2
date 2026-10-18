@@ -1,0 +1,5 @@
+import helper.jsfx-inc
+function empty() ()
+function scoped(x*) instance(y) global(*) local(z) (z=x.y; y=z;)
+value = 1e-6 + .2E+3;
+empty();

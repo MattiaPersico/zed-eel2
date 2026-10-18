@@ -1,0 +1,21 @@
+desc:Filter (stereo) "free text // not a comment
+options:gmem=filter maxmem=1000000
+in_pin:left
+out_pin:left
+filename:0,assets/picture.png
+slider1:gain=0.5<0,1,0.01>Gain (dB)
+slider2:0<0,2,1{Off,Low,High}>Mode
+slider3:/samples:default.wav:Sample file
+import "helpers/café gain.jsfx-inc"
+@init
+function scale(x amount) (x * amount);
+@slider
+gain2 = gain * gain;
+@block
+samples = samplesblock;
+@sample
+spl0 = scale(spl0, gain2)
+@serialize
+file_var(0, gain);
+@gfx 640 480
+gfx_rect(0,0,10,10);
