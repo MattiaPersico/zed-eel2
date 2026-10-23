@@ -100,7 +100,21 @@ covers scopes, same-name functions/variables, sections, transitive imports, shar
 libraries, unsaved edits, cycles, symlinks, sliders, Unicode/CRLF and protocol frames.
 The synthetic 10,000-assignment benchmark with 40 imports and 21 open documents
 measured approximately 112 ms parse, 111 ms edit, 8 ms completion and 123 ms references.
-These figures are not latency guarantees. CI and manual Zed validation are pending.
+These figures are not latency guarantees.
+
+The candidate workflow passed all six Python 3.9/3.14 combinations on Linux,
+macOS and Windows, grammar/query validation, two Rust tests and the WASM build:
+[run 39979957780](https://github.com/MattiaPersico/zed-eel2/actions/runs/39979957780).
+The tested source is `7d35a9fe288aec6f8394f6c906bca4a25e34d01c`; the grammar pin is unchanged.
+
+Manual checks in Zed 1.25.2 on macOS arm64 passed: Find All References on an imported
+function displayed its declaration plus three calls in two open effects; references
+for a local variable stayed inside its own function despite a same-name parameter
+in the effect. Slider reference search selected the header alias and its use.
+The installed 0.3.0 adapter then started the checksum-verified cached archive without
+a development override, and slider reference search was repeated successfully.
+Tests used temporary source files. No effect edits, REAPER compilation or audio
+validation were performed. The updated extension retains the same permissions.
 
 
 
