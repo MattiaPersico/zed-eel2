@@ -33,7 +33,9 @@ def main():
         server = Server(io.BytesIO())
         server.handle(dict(id=1, method='initialize', params={}))
         for i in range(20):
-            server.workspace.open((root / ('open%d.jsfx' % i)).as_uri(), imports + '@sample\nspl0=0;', 1)
+            other_uri = (root / ('open%d.jsfx' % i)).as_uri()
+            server.workspace.open(other_uri, imports + '@sample\nspl0=0;', 1)
+            workspace.open(other_uri, imports + '@sample\nhelper0(1);', 1)
         server.workspace.open(uri, source, 1)
         version = [1]
         def edit():
@@ -43,6 +45,7 @@ def main():
         print(json.dumps(dict(lines=10000, bytes=len(source.encode()), imports=40, open_documents=21,
             parse_ms=measure(lambda: Document(uri, source)),
             completion_ms=measure(lambda: workspace.completion(document, len(document.text))),
+            references_ms=measure(lambda: workspace.references(document, document.text.index('value0'))),
             edit_ms=measure(edit)), indent=2))
 
 

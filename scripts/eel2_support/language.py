@@ -63,6 +63,14 @@ class Symbol:
     section: str = ""
     parameters: object = None
     scope: object = None
+    storage: str = "global"
+
+
+@dataclass
+class FunctionScope:
+    start: int
+    end: int
+    variables: dict
 
 
 class Document:
@@ -72,11 +80,18 @@ class Document:
         self.starts = [0] + [m.end() for m in re.finditer("\n", text)]
         self.tokens, self.sections, self.imports, self.symbols = [], [], [], []
         self.issues, self.pairs = [], {}
+        self.scopes, self.scope_starts = [], []
         self.preprocessed = False
         self.lex()
+        self.token_starts = [t.start for t in self.tokens]
         self.code = [t for t in self.tokens if t.kind not in
                      {"comment", "string", "header", "import", "preprocessor", "section"}]
         self.index()
+        self.by_name, self.declarations = {}, {}
+        for symbol in self.symbols:
+            self.by_name.setdefault(symbol.name.lower(), []).append(symbol)
+            self.declarations[symbol.token.start] = symbol
+        self.code_indices = {t.start: i for i, t in enumerate(self.code)}
 
     def position(self, offset):
         offset = max(0, min(offset, len(self.text)))
@@ -210,12 +225,13 @@ class Document:
                 continue
             close = self.pairs[i + 2]
             params = code[i + 3:close]
-            local_tokens = [t for t in params if t.kind == "identifier"]
+            local_tokens = []
             signature_params = []
             for n, item in enumerate(params):
                 if item.kind == "identifier":
                     suffix = "*" if n + 1 < len(params) and params[n + 1].value == "*" else ""
                     signature_params.append(item.value + suffix)
+                    local_tokens.append((item, "namespace" if suffix else "parameter"))
             body = close + 1
             while body + 1 < len(code) and code[body].value.lower() in {"local", "static", "instance", "global", "globals"}:
                 qualifier = code[body].value.lower()
@@ -223,30 +239,33 @@ class Document:
                 if end is None:
                     break
                 if qualifier in {"local", "static", "instance"}:
-                    local_tokens.extend(t for t in code[body + 2:end] if t.kind == "identifier")
+                    local_tokens.extend((t, qualifier) for t in code[body + 2:end] if t.kind == "identifier")
                 body = end + 1
             end = self.pairs.get(body)
-            body_end = code[end].end if end is not None else name.end
+            # Keep unfinished function bodies scoped while the user is typing.
+            body_end = code[end].end if end is not None else next(
+                (s.start for s in self.sections if s.start > token.start), len(self.text))
             section = self.section_at(token.start)
             self.symbols.append(Symbol(name.value, name, 12,
                                        name.value + "(" + ", ".join(signature_params) + ")",
                                        body_end, section, signature_params))
             declarations.add(name.start)
-            for local in local_tokens:
-                self.symbols.append(Symbol(local.value, local, 13, "Function variable: " + local.value,
-                                           local.end, section, scope=(token.start, body_end)))
+            scope = FunctionScope(token.start, body_end, {})
+            self.scopes.append(scope)
+            self.scope_starts.append(token.start)
+            for local, storage in local_tokens:
+                symbol = Symbol(local.value, local, 13, storage.title() + ": " + local.value,
+                                local.end, section, scope=(token.start, body_end), storage=storage)
+                self.symbols.append(symbol)
+                scope.variables[local.value.lower()] = symbol
                 declarations.add(local.start)
-        # Look up only scopes for the assigned name, not every symbol collected so far.
-        local_scopes = {}
-        for symbol in self.symbols:
-            if symbol.scope:
-                local_scopes.setdefault(symbol.name.lower(), []).append(symbol.scope)
         globals_seen = {s.name.lower() for s in self.symbols if s.kind == 13 and not s.scope}
         for i, token in enumerate(code[:-1]):
             if token.kind != "identifier" or token.start in declarations or code[i + 1].value not in ASSIGN:
                 continue
-            if any(start <= token.start <= end
-                   for start, end in local_scopes.get(token.value.lower(), ())):
+            scope = self.scope_at(token.start)
+            name = token.value.lower()
+            if scope and (self.local_symbol(scope, name) or name.startswith("this.")):
                 continue
             if token.value.lower() in globals_seen:
                 continue
@@ -254,12 +273,48 @@ class Document:
             self.symbols.append(Symbol(token.value, token, 13, "EEL2 variable: " + token.value,
                                        token.end, self.section_at(token.start)))
 
+    def scope_at(self, offset):
+        index = bisect_right(self.scope_starts, offset) - 1
+        if index >= 0 and offset < self.scopes[index].end:
+            return self.scopes[index]
+        return None
+
+    @staticmethod
+    def local_symbol(scope, name):
+        symbol = scope.variables.get(name)
+        if symbol:
+            return symbol
+        if name.startswith("this."):
+            symbol = scope.variables.get(name[5:])
+            if symbol and symbol.storage == "instance":
+                return symbol
+        prefix = name.split(".", 1)[0]
+        symbol = scope.variables.get(prefix)
+        return symbol if symbol and symbol.storage == "namespace" else None
+
+    def identifier_at(self, offset):
+        # Slider names live inside opaque metadata tokens.
+        token = self.token_at(offset)
+        if token and token.kind == "header":
+            return next((s.token for s in self.symbols if
+                         s.token.start <= offset < s.token.end), None)
+        return token if token and token.kind == "identifier" else None
+
+    def is_call(self, token):
+        declaration = self.declarations.get(token.start)
+        if declaration:
+            return declaration.kind == 12
+        index = self.code_indices.get(token.start)
+        return index is not None and index + 1 < len(self.code) and self.code[index + 1].value == "("
+
     def token_at(self, offset):
         # Prefer the next token at a boundary; accept identifier ends for completion/hover.
-        for token in self.tokens:
-            if token.start <= offset < token.end:
+        index = bisect_right(self.token_starts, offset) - 1
+        if index >= 0:
+            token = self.tokens[index]
+            if offset < token.end or offset == token.end and token.kind == "identifier":
                 return token
-        return next((t for t in self.tokens if t.end == offset and t.kind == "identifier"), None)
+        return None
 
     def visible(self, offset):
         section = self.section_at(offset)
@@ -373,17 +428,134 @@ class Workspace:
         result = [(document, s) for s in document.visible(offset)]
         for imported in self.dependencies(document):
             result.extend((imported, s) for s in imported.symbols
-                          if s.kind == 12 and s.section in ("", "@init"))
+                          if not s.scope and (s.kind != 12 or s.section in ("", "@init")))
         return result
 
-    def resolve(self, document, offset, name):
-        candidates = self.candidates(document, offset)
-        matches = [(d, s) for d, s in candidates if s.name.lower() == name.lower()]
-        if not matches and "." in name:
-            matches = [(d, s) for d, s in candidates if s.kind == 12 and
-                       s.name.lower() == name.rsplit(".", 1)[1].lower()]
-        locals_ = [(d, s) for d, s in matches if d.uri == document.uri and s.scope]
-        return locals_ or matches
+    def resolve(self, document, offset, name, kind=None, sources=None):
+        token = document.identifier_at(offset)
+        if kind is None:
+            kind = 12 if token and document.is_call(token) else 13
+        name = name.lower()
+        scope = document.scope_at(offset)
+        declaration = document.declarations.get(token.start) if token else None
+        if declaration and declaration.kind == kind and declaration.name.lower() == name:
+            return [(document, declaration)]
+        if kind == 13 and scope:
+            local = document.local_symbol(scope, name)
+            if local:
+                return [(document, local)]
+            if name.startswith("this."):
+                return []
+        sources = sources if sources is not None else self.dependencies(document)
+        section = document.section_at(offset)
+        while True:
+            matches = []
+            for source in [document] + [d for d in sources if d.canonical_uri != document.canonical_uri]:
+                for symbol in source.by_name.get(name, ()):
+                    if symbol.kind != kind or symbol.scope:
+                        continue
+                    if kind == 12:
+                        own = source.canonical_uri == document.canonical_uri
+                        if symbol.section not in (("", "@init", section) if own else ("", "@init")):
+                            continue
+                        if own and scope and symbol.token.start >= scope.start:
+                            continue
+                    matches.append((source, symbol))
+            if matches or kind != 12 or "." not in name:
+                break
+            name = name.split(".", 1)[1]
+        if kind == 12:
+            own = [(d, s) for d, s in matches if d.canonical_uri == document.canonical_uri]
+            section_matches = [(d, s) for d, s in own if s.section == section]
+            return section_matches or own or matches
+        return matches
+
+    def bindings(self, document, token, root, sources):
+        """Return lexical identities and precise spans, without inferring runtime aliases."""
+        if document.preprocessed:
+            return []
+        name = token.value.lower()
+        if name == "#":  # Anonymous strings have no stable identity.
+            return []
+        declaration = document.declarations.get(token.start)
+        declared = bool(declaration)
+        scope = document.scope_at(token.start)
+        prefix, dot, member = name.partition(".")
+        if scope:
+            local = scope.variables.get(prefix)
+            if local and local.storage == "namespace" and dot:
+                key = ("local", document.canonical_uri, local.token.start)
+                # Namespace parameters bind the prefix, not every field to the parameter.
+                return [(key, token.start, token.start + len(prefix), False),
+                        (("namespace-member", document.canonical_uri, scope.start, name,
+                          document.is_call(token)), token.start + len(prefix) + 1, token.end, False)]
+            local = document.local_symbol(scope, name)
+            if local and local.storage != "instance" and not document.is_call(token):
+                return [(("local", document.canonical_uri, local.token.start),
+                         token.start, token.end, declared)]
+            if not document.is_call(token) and (name.startswith("this.") or
+                                                local and local.storage == "instance"):
+                member = name[5:] if name.startswith("this.") else name
+                if not member or member.startswith("."):
+                    return []  # Parent-relative namespaces need call-site analysis.
+                start = token.end - len(member)
+                return [(("instance", document.canonical_uri, scope.start, member),
+                         start, token.end, declared)]
+        if document.is_call(token):
+            matches = self.resolve(document, token.start, name, 12, sources)
+            if len(matches) == 1:
+                source, symbol = matches[0]
+                if source.preprocessed:
+                    return []
+                key = ("function", source.canonical_uri, symbol.token.start)
+                return [(key, token.end - len(symbol.name), token.end, declared)]
+            builtin = BUILTINS.get(name)
+            if not matches and builtin and builtin["kind"] == 3:
+                return [(("builtin", root.canonical_uri, name), token.start, token.end, False)]
+            return []
+        builtin = BUILTINS.get(name)
+        if builtin and builtin["kind"] == 14:
+            return []
+        return [(("global", root.canonical_uri, name), token.start, token.end, declared)]
+
+    def references(self, document, offset, include_declaration=False):
+        token = document.identifier_at(offset)
+        if not token or document.preprocessed:
+            return []
+        # Roots keep unrelated effects' global variables separate. Shared imported
+        # functions retain a source identity across all open importing effects.
+        graphs = {}
+        for root in list(self.documents.values()) + [document]:
+            if root.canonical_uri not in graphs:
+                graphs[root.canonical_uri] = (root, [root] + self.dependencies(root))
+        imported = {d.canonical_uri for _, docs in graphs.values() for d in docs[1:]}
+        contexts = [(root, docs) for root, docs in graphs.values() if root.canonical_uri not in imported]
+        # Preserve standalone include buffers and import cycles with no root.
+        covered = {d.canonical_uri for _, docs in contexts for d in docs}
+        for root, docs in graphs.values():
+            if root.canonical_uri not in covered:
+                contexts.append((root, docs))
+                covered.update(d.canonical_uri for d in docs)
+        targets = set()
+        for root, docs in contexts:
+            if any(d.canonical_uri == document.canonical_uri for d in docs):
+                for key, start, end, _ in self.bindings(document, token, root, docs):
+                    if start <= offset < end or offset == token.end == end:
+                        targets.add(key)
+        if not targets:
+            return []
+        locations = {}
+        for root, docs in contexts:
+            for source in docs:
+                tokens = [t for t in source.code if t.kind == "identifier"]
+                tokens.extend(s.token for s in source.symbols if s.token.start not in source.code_indices)
+                for occurrence in tokens:
+                    for key, start, end, declared in self.bindings(source, occurrence, root, docs):
+                        if key in targets and (include_declaration or not declared):
+                            locations[(source.canonical_uri, start, end)] = dict(
+                                uri=source.uri, range=source.range(start, end))
+        return sorted(locations.values(), key=lambda loc: (
+            loc["uri"], loc["range"]["start"]["line"], loc["range"]["start"]["character"]))
 
     def diagnostics(self, document):
         issues = list(document.issues)
@@ -426,7 +598,7 @@ class Workspace:
         return sorted(result, key=lambda item: item["label"].lower())
 
     def hover(self, document, offset):
-        token = document.token_at(offset)
+        token = document.identifier_at(offset) or document.token_at(offset)
         if not token or token.kind not in {"identifier", "section"}:
             return None
         matches = self.resolve(document, offset, token.value)
@@ -452,7 +624,7 @@ class Workspace:
                     return [dict(uri=uri, range=dict(start=dict(line=0, character=0),
                                                     end=dict(line=0, character=0)))]
                 return []
-        token = document.token_at(offset)
+        token = document.identifier_at(offset)
         if not token or token.kind != "identifier":
             return []
         return [dict(uri=source.uri, range=source.range(s.token.start, s.token.end))
@@ -482,7 +654,7 @@ class Workspace:
         for _, name, argument in reversed(stack):
             if not name:
                 continue
-            matches = [(d, s) for d, s in self.resolve(document, offset, name) if s.kind == 12]
+            matches = self.resolve(document, offset, name, kind=12)
             if matches:
                 symbol = matches[0][1]
                 label, params, documentation = symbol.detail, symbol.parameters, None

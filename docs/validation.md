@@ -31,14 +31,36 @@ spl0 = scale(sin(0), gain);
 
 This is a lexer and lightweight symbol index, **not an EEL2 parser/compiler**.
 A clean diagnostics list does not establish valid EEL2 or correct audio behavior.
-It does not validate expressions, function arity, memory access, DSP, variable
-initialization, recursion restrictions or declaration-order visibility.
+It does not validate expressions, function arity, memory access, DSP or variable
+initialization. Same-file forward/recursive calls inside function bodies are
+excluded from navigation, but this is not a complete declaration-order validator.
 
-Function lookup respects basic section/local scope but is approximate for
-namespaces, overloads, global declarations and inherited sections. Namespace
-calls fall back to a matching unqualified function; ambiguous matches can return
-multiple locations. Globals are indexed from their first simple assignment.
-References, rename, formatting and code actions are not implemented.
+Function calls and variable names resolve separately. Parameters, local/static
+variables and namespace parameters are private to their function. An instance(name)
+declaration and this.name bind together within that function. Namespace parameter
+prefixes and their fields have separate reference ranges. Runtime namespace aliases,
+parent-relative this.. paths, overloads, global() restrictions and inherited import
+sections are not fully modeled. Instance state is not linked across functions or
+concrete caller objects. Rename, formatting and code actions are not implemented.
+
+### Reference search
+
+Use Zed's **Go > Find All References** on a function or variable. The server
+searches the current document, open documents and their local imports; open buffers
+win over saved content. Shared imported functions can be found across multiple
+open effects, while globals stay within each effect's import graph. To discover
+another effect that imports the same library, open it in Zed first. Unopened files
+outside these import graphs are not scanned. Shared files and path aliases are
+deduplicated, and returned ranges use UTF-16 positions.
+
+Parameters/local variables include only their own function. Relative instance
+members are limited to their lexical function; namespace parameter searches select
+the prefix, while searches on a field select that field. Function references on a
+namespaced call select the resolved function suffix. Ambiguous function calls and
+preprocessed source are omitted. Comments, strings (including formatted-string
+variable substitutions) and free-form header text are not references. Slider names
+and aliases in header declarations are supported. A variable's first simple
+assignment in each file is treated as its declaration for includeDeclaration.
 
 The curated built-in catalog is intentionally incomplete. Optional parameters
 are labelled with `_optional`; variadic entries use `...`. Some alternative
@@ -64,6 +86,23 @@ errors are not published as LSP diagnostics.
 
 
 ## Recorded validation
+
+## Version 0.3.0 references and scopes
+
+- Advertise LSP textDocument/references and honor includeDeclaration.
+- Resolve calls separately from variables and prefer the current section's functions.
+- Keep local variables scoped even when a function body is temporarily incomplete.
+- Distinguish namespace parameters and relative instance state from globals.
+- Reuse bounded import graphs; preserve unsaved buffers and deduplicate aliases.
+
+Local validation on 2026-10-23: the standalone suite passes 49 tests (one expected private-corpus skip). The reference suite
+covers scopes, same-name functions/variables, sections, transitive imports, shared
+libraries, unsaved edits, cycles, symlinks, sliders, Unicode/CRLF and protocol frames.
+The synthetic 10,000-assignment benchmark with 40 imports and 21 open documents
+measured approximately 112 ms parse, 111 ms edit, 8 ms completion and 123 ms references.
+These figures are not latency guarantees. CI and manual Zed validation are pending.
+
+
 
 Validation on 2026-10-18 for 0.2.0: the standalone
 suite runs 36 tests with one expected skip for the private effect collection.

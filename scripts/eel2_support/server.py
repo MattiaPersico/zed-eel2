@@ -88,12 +88,13 @@ class Server:
         if method == "initialize" and request and not self.initialized:
             self.initialized = True
             self.send(id=message["id"], result=dict(
-                serverInfo=dict(name="MTT EEL2 Language Server", version="0.2.0"),
+                serverInfo=dict(name="MTT EEL2 Language Server", version="0.3.0"),
                 capabilities=dict(
                     positionEncoding="utf-16",
                     textDocumentSync=dict(openClose=True, change=1, save=dict(includeText=False)),
                     completionProvider=dict(triggerCharacters=[".", "@", "#", "$"]),
                     hoverProvider=True, definitionProvider=True, documentSymbolProvider=True,
+                    referencesProvider=True,
                     signatureHelpProvider=dict(triggerCharacters=["(", ","], retriggerCharacters=[","]),
                     semanticTokensProvider=dict(legend=dict(tokenTypes=TOKEN_TYPES, tokenModifiers=[]),
                                                 full=True, range=False),
@@ -154,6 +155,9 @@ class Server:
             document = self.workspace.read(params.get("textDocument", {}).get("uri", ""))
             if method in methods:
                 result = methods[method](document, document.offset(params["position"])) if document else None
+            elif method == "textDocument/references":
+                result = self.workspace.references(document, document.offset(params["position"]),
+                    params.get("context", {}).get("includeDeclaration", False)) if document else []
             elif method == "textDocument/documentSymbol":
                 result = document.document_symbols() if document else []
             elif method == "textDocument/semanticTokens/full":

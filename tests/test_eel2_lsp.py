@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -242,6 +243,145 @@ class LanguageTests(unittest.TestCase):
             self.assertEqual(doc.issues, [])
             self.assertTrue(self.workspace.definition(doc, doc.text.rindex('square')))
 
+    def reference_spans(self, doc, offset, include=False):
+        return [(loc['uri'], loc['range']) for loc in self.workspace.references(doc, offset, include)]
+
+    def assert_references(self, doc, needle, expected, include=False):
+        actual = self.reference_spans(doc, doc.text.index(needle), include)
+        locations = [(source.uri, source.range(start, start + len(value)))
+                     for source, start, value in expected]
+        self.assertCountEqual(actual, locations)
+
+    def test_references_separate_parameters_locals_and_globals(self):
+        doc = self.document('@init\nx=1;\nfunction a(x) local(tmp) (tmp=x; tmp);\n'
+                            'function b(x) static(tmp) (tmp=x; tmp);\n@sample\nx+=1;')
+        self.assert_references(doc, 'x=1', [(doc, doc.text.rindex('x'), 'x')])
+        self.assert_references(doc, 'x) local', [(doc, doc.text.index('x;'), 'x')])
+        self.assert_references(doc, 'tmp) (tmp=x; tmp);\nfunction', [
+            (doc, doc.text.index('tmp=x'), 'tmp'), (doc, doc.text.index('tmp);'), 'tmp')])
+        self.assert_references(doc, 'x) static', [
+            (doc, doc.text.index('x) static'), 'x'), (doc, doc.text.rindex('x;'), 'x')], True)
+
+    def test_references_separate_functions_from_variables_and_sections(self):
+        doc = self.document('@init\nf=1; function f(x) (x); f(0);\n'
+                            '@gfx\nfunction f(y) (y); f(1);\n@sample\nf(2); value=f;')
+        self.assert_references(doc, 'f(x)', [(doc, doc.text.index('f(0)'), 'f'),
+                                            (doc, doc.text.index('f(2)'), 'f')])
+        self.assert_references(doc, 'f(y)', [(doc, doc.text.index('f(1)'), 'f')])
+        self.assert_references(doc, 'f=1', [(doc, doc.text.rindex('f;'), 'f')])
+        self.assertEqual(self.workspace.definition(doc, doc.text.index('f(1)'))[0]['range'],
+                         doc.range(doc.text.index('f(y)'), doc.text.index('f(y)') + 1))
+
+    def test_references_imported_function_across_open_effects_and_unsaved_include(self):
+        library = self.document('function scale(x) (x);', 'library.jsfx-inc')
+        first = self.document('import library.jsfx-inc\n@sample\nscale(1);', 'first.jsfx')
+        second = self.document('import library.jsfx-inc\n@sample\nscale(2);', 'second.jsfx')
+        self.document('@init\nfunction scale(z) (z); scale(3);', 'unrelated.jsfx')
+        expected = [(first, first.text.index('scale'), 'scale'),
+                    (second, second.text.index('scale'), 'scale')]
+        self.assert_references(first, 'scale', expected)
+        self.assert_references(library, 'scale', expected)
+        self.assert_references(library, 'scale', expected + [(library, 9, 'scale')], True)
+        self.workspace.open(library.uri, 'function replaced(x) (x);', 2)
+        self.assertEqual(self.workspace.references(first, first.text.index('scale')), [])
+
+    def test_references_globals_share_only_one_effect_import_graph(self):
+        library = self.document('function get() global(value) (value);', 'library.jsfx-inc')
+        first = self.document('import library.jsfx-inc\n@init\nvalue=1;\n@sample\nvalue;', 'first.jsfx')
+        second = self.document('import library.jsfx-inc\n@init\nvalue=2;\n@sample\nvalue;', 'second.jsfx')
+        self.document('@init\nvalue=3; value;', 'unrelated.jsfx')
+        self.assert_references(first, 'value=1', [
+            (first, first.text.rindex('value'), 'value'),
+            (library, library.text.index('value'), 'value'),
+            (library, library.text.rindex('value'), 'value')])
+        locations = self.workspace.references(library, library.text.rindex('value'))
+        self.assertEqual({loc['uri'] for loc in locations}, {library.uri, first.uri, second.uri})
+        self.assertEqual(len(locations), 4)  # Shared include locations are deduplicated.
+
+    def test_references_namespace_parameters_and_instance_aliases(self):
+        doc = self.document('@init\nfunction copy(src*) instance(value) '
+                            '(value=src.value; this.value+=src.value; src.other);\n'
+                            'function other(src*) (this.value=src.value);\n'
+                            '@sample\nobj.value=0; obj.copy(obj);')
+        src_uses = [m.start() for m in re.finditer('src\\.', doc.text)]
+        self.assert_references(doc, 'src*', [(doc, start, 'src') for start in src_uses[:3]])
+        self.assert_references(doc, 'value) (', [
+            (doc, doc.text.index('value=src'), 'value'),
+            (doc, doc.text.index('this.value') + 5, 'value')])
+        self.assert_references(doc, 'value; this', [
+            (doc, doc.text.index('src.value') + 4, 'value'),
+            (doc, doc.text.index('src.value', doc.text.index('src.value') + 1) + 4, 'value')])
+        self.assertFalse(any(s.name.lower() in ('src.value', 'this.value') and not s.scope for s in doc.symbols))
+        self.assertEqual(self.workspace.definition(doc, doc.text.index('this.value') + 5)[0]['range'],
+                         doc.range(doc.text.index('value) ('), doc.text.index('value) (') + 5))
+
+    def test_references_namespace_function_calls_and_variable_members(self):
+        doc = self.document('@init\nfunction f(x) (x);\n@sample\na.f(1); b.f(2); a.f=3; a.f;')
+        self.assert_references(doc, 'f(x)', [(doc, doc.text.index('a.f(1)') + 2, 'f'),
+                                            (doc, doc.text.index('b.f(2)') + 2, 'f')])
+        self.assert_references(doc, 'a.f=3', [(doc, doc.text.rindex('a.f'), 'a.f')])
+
+    def test_references_slider_headers_utf16_case_and_ignored_text(self):
+        doc = self.document('desc:gain gain\r\nslider1:gain=0<0,1>gain\r\n@sample\r\n'
+                            '"🎵 gain"; GAIN=1; gain; // gain\r\n/* gain */')
+        self.assert_references(doc, 'gain=0', [(doc, doc.text.index('GAIN'), 'GAIN'),
+                                              (doc, doc.text.index('gain;'), 'gain')])
+        self.assert_references(doc, 'GAIN', [(doc, doc.text.index('gain=0'), 'gain'),
+                                           (doc, doc.text.index('GAIN'), 'GAIN'),
+                                           (doc, doc.text.index('gain;'), 'gain')], True)
+        for needle in ('gain gain', 'gain"', 'gain */'):
+            self.assertEqual(self.workspace.references(doc, doc.text.index(needle)), [])
+
+    def test_references_ignore_ambiguous_import_calls_and_preprocessed_source(self):
+        library = self.document('function f(x) (x);', 'a.jsfx-inc')
+        self.document('function f(y) (y);', 'b.jsfx-inc')
+        doc = self.document('import a.jsfx-inc\nimport b.jsfx-inc\n@sample\nf(1);')
+        self.assertEqual(self.workspace.references(doc, doc.text.index('f(1)')), [])
+        self.assertEqual(self.workspace.references(library, 9), [])
+        generated = self.document('@init\n<? printf("x=1;"); ?>\nx=1; x;', 'generated.jsfx')
+        self.assertEqual(self.workspace.references(generated, generated.text.rindex('x;')), [])
+
+    def test_scope_recovery_and_no_forward_calls_inside_functions(self):
+        doc = self.document('@init\nfunction earlier(x) (x);\n'
+                            'function f(x) (earlier(x); later(x); f(x));\n'
+                            'function later(x) (x);\n@sample\nf(1);')
+        self.assertTrue(self.workspace.definition(doc, doc.text.index('earlier(x);')))
+        self.assertEqual(self.workspace.definition(doc, doc.text.index('later(x);')), [])
+        self.assertEqual(self.workspace.definition(doc, doc.text.index('f(x));')), [])
+        broken = self.document('@init\nfunction f(x) local(temp) (temp=x;\n@sample\nx=1; x;')
+        self.assert_references(broken, 'x) local', [(broken, broken.text.index('x;'), 'x')])
+        self.assert_references(broken, 'x=1', [(broken, broken.text.rindex('x;'), 'x')])
+
+    def test_references_cycles_and_symlink_aliases_are_deduplicated(self):
+        real, alias = self.root / 'real.jsfx-inc', self.root / 'alias.jsfx-inc'
+        real.write_text('function old(x) (x);', encoding='utf-8')
+        try:
+            alias.symlink_to(real)
+        except OSError as error:
+            self.skipTest('Symlinks unavailable: ' + str(error))
+        library = self.workspace.open(alias.as_uri(), 'import effect.jsfx\nfunction f(x) (x);', 2)
+        doc = self.document('import real.jsfx-inc\nimport alias.jsfx-inc\n@sample\nf(1);')
+        self.assert_references(doc, 'f(1)', [(library, library.text.index('f(x)'), 'f'),
+                                            (doc, doc.text.index('f(1)'), 'f')], True)
+
+    def test_references_read_transitive_disk_imports_without_scanning_directories(self):
+        (self.root / 'a.jsfx-inc').write_text('import b.jsfx-inc\nfunction caller() (shared());', encoding='utf-8')
+        (self.root / 'b.jsfx-inc').write_text('function shared() (1);', encoding='utf-8')
+        (self.root / 'unopened.jsfx').write_text('import b.jsfx-inc\n@sample\nshared();', encoding='utf-8')
+        doc = self.document('import a.jsfx-inc\n@sample\nshared();')
+        a, b = self.workspace.dependencies(doc)
+        self.assert_references(doc, 'shared', [(doc, doc.text.index('shared'), 'shared'),
+                                              (a, a.text.index('shared'), 'shared'), (b, 9, 'shared')], True)
+        self.workspace.MAX_IMPORTS = 2
+        self.assertEqual(self.workspace.references(doc, doc.text.index('shared')), [])
+
+    def test_instance_members_do_not_guess_runtime_aliases(self):
+        doc = self.document('@init\nfunction f() (this.value=1; this.value; this..value);\n'
+                            'function g() (this.value=2; this.value);\n@sample\na.value=0; a.f();')
+        first = doc.text.index('this.value') + 5
+        self.assertEqual(len(self.workspace.references(doc, first)), 2)
+        self.assertEqual(self.workspace.references(doc, doc.text.index('this..value') + 6), [])
+
     def test_existing_effects_have_no_lexical_diagnostics(self):
         if not (ROOT / 'effects').is_dir():
             self.skipTest('Private effect collection is not part of the public extension')
@@ -280,7 +420,22 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(caps['positionEncoding'], 'utf-16')
         self.assertEqual(caps['textDocumentSync']['change'], 1)
         self.assertNotIn('renameProvider', caps)
+        self.assertTrue(caps['referencesProvider'])
         self.assertEqual(self.messages(), [])
+
+    def test_reference_request_tracks_unsaved_edits_and_include_declaration(self):
+        self.server.workspace.open(self.uri, '@init\nx=1; x; // x', 1)
+        def request(include):
+            self.server.handle(dict(id=2, method='textDocument/references', params=dict(
+                textDocument=dict(uri=self.uri), position=dict(line=1, character=0),
+                context=dict(includeDeclaration=include))))
+            return self.messages()[-1]['result']
+        self.assertEqual(len(request(False)), 1)
+        self.assertEqual(len(request(True)), 2)
+        self.server.handle(dict(method='textDocument/didChange', params=dict(
+            textDocument=dict(uri=self.uri, version=2), contentChanges=[dict(text='@init\nx=1; y;')])))
+        self.messages()
+        self.assertEqual(request(False), [])
 
     def test_framing_counts_utf8_bytes_and_handles_fragmented_input(self):
         payload = dict(jsonrpc='2.0', id=1, result='🎵 è')
@@ -368,7 +523,9 @@ class ProtocolTests(unittest.TestCase):
                     dict(id=2, method='textDocument/hover', params=dict(textDocument=dict(uri=self.uri),
                          position=dict(line=1, character=6))),
                     dict(id=3, method='textDocument/semanticTokens/full', params=dict(textDocument=dict(uri=self.uri))),
-                    dict(id=4, method='shutdown'), dict(method='exit')]
+                    dict(id=4, method='textDocument/references', params=dict(textDocument=dict(uri=self.uri),
+                         position=dict(line=1, character=6), context=dict(includeDeclaration=False))),
+                    dict(id=5, method='shutdown'), dict(method='exit')]
         for message in messages:
             write_message(stream, dict(jsonrpc='2.0', **message))
         result = subprocess.run([sys.executable, str(ROOT / 'scripts/eel2_lsp.py'), '--stdio'],
@@ -382,9 +539,10 @@ class ProtocolTests(unittest.TestCase):
             if message is None:
                 break
             decoded.append(message)
-        self.assertEqual(len(decoded), 5)
+        self.assertEqual(len(decoded), 6)
         self.assertIn('sin(x)', decoded[2]['result']['contents']['value'])
         self.assertTrue(decoded[3]['result']['data'])
+        self.assertEqual(decoded[4]['result'][0]['range']['start'], dict(line=1, character=5))
 
 
 if __name__ == '__main__':
