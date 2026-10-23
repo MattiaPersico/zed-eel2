@@ -377,10 +377,11 @@ class LanguageTests(unittest.TestCase):
 
     def test_instance_members_do_not_guess_runtime_aliases(self):
         doc = self.document('@init\nfunction f() (this.value=1; this.value; this..value);\n'
-                            'function g() (this.value=2; this.value);\n@sample\na.value=0; a.f();')
+                            'function g() (this.value=2; this.value; this..f());\n@sample\na.value=0; a.f();')
         first = doc.text.index('this.value') + 5
         self.assertEqual(len(self.workspace.references(doc, first)), 2)
         self.assertEqual(self.workspace.references(doc, doc.text.index('this..value') + 6), [])
+        self.assertEqual(self.workspace.references(doc, doc.text.index('this..f') + 6), [])
 
     def test_existing_effects_have_no_lexical_diagnostics(self):
         if not (ROOT / 'effects').is_dir():

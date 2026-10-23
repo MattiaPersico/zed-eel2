@@ -480,6 +480,8 @@ class Workspace:
         declaration = document.declarations.get(token.start)
         declared = bool(declaration)
         scope = document.scope_at(token.start)
+        if scope and name.startswith("this.."):
+            return []  # Parent-relative calls and variables depend on runtime namespaces.
         prefix, dot, member = name.partition(".")
         if scope:
             local = scope.variables.get(prefix)
