@@ -1,6 +1,6 @@
 id = "eel2"
 name = "EEL2 / JSFX"
-version = "0.3.0"
+version = "0.4.0"
 schema_version = 1
 authors = ["Mattia Persico"]
 description = "EEL2 and REAPER JSFX language support with completion, hover, navigation and diagnostics."

@@ -26,56 +26,79 @@ spl0 = scale(sin(0), gain);
   function. Edit its name in the open include without saving and check completion.
 
 
-## Limitations
+## Editing, discovery and compiler checks
 
+### Rename
 
-This is a lexer and lightweight symbol index, **not an EEL2 parser/compiler**.
-A clean diagnostics list does not establish valid EEL2 or correct audio behavior.
-It does not validate expressions, function arity, memory access, DSP or variable
-initialization. Same-file forward/recursive calls inside function bodies are
-excluded from navigation, but this is not a complete declaration-order validator.
+Zed's Rename command supports ordinary user functions, globals, slider aliases,
+parameters, local/static variables and namespace parameter prefixes. The server
+prepares a range, checks names and completeness, then returns a WorkspaceEdit for
+the editor to apply. Open buffers carry their document version; the server never
+writes source files. Existing names in the affected scope are conservatively
+rejected to avoid capture. Case-only renames are supported.
 
-Function calls and variable names resolve separately. Parameters, local/static
-variables and namespace parameters are private to their function. An instance(name)
-declaration and this.name bind together within that function. Namespace parameter
-prefixes and their fields have separate reference ranges. Runtime namespace aliases,
-parent-relative this.. paths, overloads, global() restrictions and inherited import
-sections are not fully modeled. Instance state is not linked across functions or
-concrete caller objects. Rename, formatting and code actions are not implemented.
+Rename is deliberately unavailable for built-in/host names, qualified global names,
+instance members, functions using instance state, ambiguous/dynamic calls, shared
+import globals, formatted-string variable substitutions, preprocessed or incomplete
+sources, missing imports and truncated workspace scans. These cases require manual
+review; inferred runtime aliases are used for navigation only. Global() constraints,
+overloads and imported declaration order are not fully modeled.
 
-### Reference search
+### Format
 
-Use Zed's **Go > Find All References** on a function or variable. The server
-searches the current document, open documents and their local imports; open buffers
-win over saved content. Shared imported functions can be found across multiple
-open effects, while globals stay within each effect's import graph. To discover
-another effect that imports the same library, open it in Zed first. Unopened files
-outside these import graphs are not scanned. Shared files and path aliases are
-deduplicated, and returned ranges use UTF-16 positions.
+The language server supplies document formatting that normalizes indentation and
+removes code trailing whitespace. Zed's tab size and spaces/tabs choice are honored.
+It does not split expressions, reorder code or change operators. Header/import/
+section lines, multiline strings/comments and line endings are preserved. Incomplete
+or preprocessed documents are left unchanged. Formatting tests compare complete
+token streams and require idempotence.
 
-Parameters/local variables include only their own function. Relative instance
-members are limited to their lexical function; namespace parameter searches select
-the prefix, while searches on a field select that field. Function references on a
-namespaced call select the resolved function suffix. Ambiguous function calls and
-preprocessed source are omitted. Comments, strings (including formatted-string
-variable substitutions) and free-form header text are not references. Slider names
-and aliases in header declarations are supported. A variable's first simple
-assignment in each file is treated as its declaration for includeDeclaration.
+### References and workspace discovery
 
-The curated built-in catalog is intentionally incomplete. Optional parameters
-are labelled with `_optional`; variadic entries use `...`. Some alternative
-signatures are described in the hover text rather than separate overload entries.
+Use **Go > Find All References**. Besides open buffers and local imports, the server
+scans the explicit LSP workspace folders on each search. It reads `.jsfx`, `.jsfx-inc`,
+`.eel` and `.eel2` files, including unopened importers; unsaved buffers take precedence.
+Each scan is bounded to 256 files, 16 MiB, 8192 entries and 16 directory levels.
+Hidden entries, symlinks, node_modules, target, dist, build, vendor and __pycache__ are
+skipped. Use `lsp.eel2-lsp.initialization_options.exclude` for additional project-relative
+glob patterns. This policy does not implement all `.gitignore` rules. A capped or
+unreadable scan logs a warning and disables project-wide rename.
 
-Imports are resolved relative to each importing file, following at most 64 unique
-files per lookup and reading at most 2 MiB per disk file. There is no directory
-scan and no reproduction of REAPER's resource-directory search. Consequently an
-unreadable-local-import warning can refer to a file REAPER would find elsewhere.
-Saved imports are checked for changes on the next request/save; external changes
-do not proactively notify an idle editor. The server only reads source files.
+Globals stay within each effect's import graph. Shared function declarations retain
+their source identity. Static calls such as `a.set()` and `a.get()` connect instance
+members to `a.value`; concrete namespace parameters and parent-relative `this..`
+paths are followed, up to 128 function/namespace instantiations per graph. Computed
+arguments and unresolved calls are not guessed. A shared function may represent
+several runtime instances, so these links are possible references, not a proof for
+automatic rename. Namespace prefixes and members have distinct selection ranges.
 
-Files containing `<? ... ?>` preprocessing disable structural diagnostics,
-because the generated EEL2 may have a different structure. Completion/navigation
-still operate approximately on the source; the preprocessor is never executed.
+Comments, strings and free-form headers are not reference occurrences. Slider names
+and aliases are recognized. First simple assignments are treated as declarations for
+includeDeclaration. UTF-16 positions and canonical path deduplication are preserved.
+Imports remain relative to each source, at most 64 files per graph and 2 MiB per disk
+file; REAPER's global resource search is not reproduced. External disk changes are
+picked up on subsequent requests/saves, not by a background directory watcher.
+
+### Optional real compilation
+
+The [native checker](../compiler/README.md) links a pinned ysfx EEL2
+compiler. It compiles temporary snapshots on open/save, including unsaved imports,
+without initializing or running effects. A background worker prevents editor stalls,
+results become invalid immediately after edits, and each process has a five-second
+timeout. At most eight open JSFX roots are checked per event. Preprocessed/missing/
+over-limit imports are explicitly skipped. Diagnostics use source `eel2-ysfx`.
+
+Install the matching checker release and set `EEL2_CHECKER` through Zed's
+`lsp.eel2-lsp.binary.env`, or place `eel2-check-v0.4.0` (`.exe` on Windows) alongside
+the cached server archive. The rest of the extension does not require this helper.
+Its ZIP includes dependency license notices; release checksums are supplied.
+
+ysfx is an independent implementation and may reject newer REAPER-specific APIs.
+When imported error locations are ambiguous, the original compiler message appears
+at the main file's first line. REAPER compilation and audio testing remain separate
+requirements. Built-in diagnostics are still structural checks; a clean result is
+not proof of compilation, memory safety or audio behavior. Preprocessing is never
+executed, and the API catalog is intentionally incomplete.
 
 The maintained [EEL2 / JSFX grammar](../grammar/README.md) extends the original
 MIT-licensed DyGriin grammar. Metadata, slider declarations, imports and section

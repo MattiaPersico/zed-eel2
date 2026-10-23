@@ -3,8 +3,13 @@
 import json
 import sys
 import traceback
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
+from . import VERSION
 from .language import Document, TOKEN_TYPES, Workspace
+from .editing import EditError, format_document, prepare_rename, rename
+from .compiler import checker_path, check as compiler_check
 
 MAX_MESSAGE = 16 * 1024 * 1024
 
@@ -59,12 +64,18 @@ class Server:
         self.initialized = False
         self.shutdown = False
         self.published = {}
+        self.versioned_edits = False
+        self.lock = threading.RLock()
+        self.checker = checker_path()
+        self.executor = ThreadPoolExecutor(max_workers=1) if self.checker else None
+        self.compiler_results, self.compiler_jobs = {}, {}
+        self.compiler_generation = 0
 
     def send(self, **message):
         write_message(self.output, dict(jsonrpc="2.0", **message))
 
     def publish(self, document):
-        diagnostics = self.workspace.diagnostics(document)
+        diagnostics = self.workspace.diagnostics(document) + self.compiler_results.get(document.uri, [])
         if self.published.get(document.uri) == diagnostics:
             return
         self.published[document.uri] = diagnostics
@@ -79,22 +90,78 @@ class Server:
             self.publish(document)
 
     def handle(self, message):
+        with self.lock:
+            return self._handle(message)
+
+    def invalidate_compiler(self):
+        self.compiler_generation += 1
+        affected = list(self.compiler_results)
+        self.compiler_results.clear()
+        for future in list(self.compiler_jobs.values()):
+            future.cancel()
+        self.compiler_jobs.clear()
+        for uri in affected:
+            if uri in self.workspace.documents:
+                self.publish(self.workspace.documents[uri])
+
+    def schedule_compiler(self):
+        if not self.executor:
+            return
+        generation = self.compiler_generation
+        for document in list(self.workspace.documents.values()):
+            if not document.uri.lower().endswith('.jsfx') or len(self.compiler_jobs) >= 8:
+                continue
+            sources = [document] + self.workspace.dependencies(document)
+            future = self.executor.submit(compiler_check, self.checker, self.workspace, document, sources)
+            self.compiler_jobs[document.uri] = future
+            def completed(result, document=document, generation=generation):
+                with self.lock:
+                    if result.cancelled() or self.shutdown or generation != self.compiler_generation:
+                        return
+                    self.compiler_jobs.pop(document.uri, None)
+                    if self.workspace.documents.get(document.uri) is not document:
+                        return
+                    try:
+                        self.compiler_results[document.uri] = result.result()
+                    except Exception as error:
+                        print('eel2 compiler: ' + str(error), file=sys.stderr)
+                        return
+                    self.publish(document)
+            future.add_done_callback(completed)
+
+    def _handle(self, message):
         method = message.get("method")
         request = "id" in message
         if method is None:  # Client response to a server request (none currently sent).
             return None
         if method == "exit":
-            return 0 if self.shutdown else 1
+            status = 0 if self.shutdown else 1
+            self.shutdown = True
+            self.invalidate_compiler()
+            if self.executor:
+                self.executor.shutdown(wait=False, cancel_futures=True)
+            return status
         if method == "initialize" and request and not self.initialized:
             self.initialized = True
+            options = message.get('params') or {}
+            folders = options.get('workspaceFolders') or []
+            self.workspace.set_folders([f['uri'] for f in folders] or
+                                       ([options['rootUri']] if options.get('rootUri') else []))
+            initialization = options.get('initializationOptions') or {}
+            excludes = initialization.get('exclude', []) if isinstance(initialization, dict) else []
+            self.workspace.excludes = [x for x in excludes if isinstance(x, str)] if isinstance(excludes, list) else []
+            self.versioned_edits = bool(options.get('capabilities', {}).get('workspace', {}).get(
+                'workspaceEdit', {}).get('documentChanges'))
             self.send(id=message["id"], result=dict(
-                serverInfo=dict(name="MTT EEL2 Language Server", version="0.3.0"),
+                serverInfo=dict(name="MTT EEL2 Language Server", version=VERSION),
                 capabilities=dict(
                     positionEncoding="utf-16",
                     textDocumentSync=dict(openClose=True, change=1, save=dict(includeText=False)),
                     completionProvider=dict(triggerCharacters=[".", "@", "#", "$"]),
                     hoverProvider=True, definitionProvider=True, documentSymbolProvider=True,
                     referencesProvider=True,
+                    renameProvider=dict(prepareProvider=True), documentFormattingProvider=True,
+                    workspace=dict(workspaceFolders=dict(supported=True, changeNotifications=True)),
                     signatureHelpProvider=dict(triggerCharacters=["(", ","], retriggerCharacters=[","]),
                     semanticTokensProvider=dict(legend=dict(tokenTypes=TOKEN_TYPES, tokenModifiers=[]),
                                                 full=True, range=False),
@@ -107,13 +174,23 @@ class Server:
             return None
         if method == "shutdown" and request:
             self.shutdown = True
+            self.invalidate_compiler()
+            if self.executor:
+                self.executor.shutdown(wait=False, cancel_futures=True)
             self.send(id=message["id"], result=None)
             return None
         params = message.get("params") or {}
-        if method == "textDocument/didOpen":
+        if method == 'workspace/didChangeWorkspaceFolders':
+            event = params.get('event', {})
+            removed = {f['uri'] for f in event.get('removed', [])}
+            uris = [p.as_uri() for p in self.workspace.roots if p.as_uri() not in removed]
+            self.workspace.set_folders(uris + [f['uri'] for f in event.get('added', [])])
+        elif method == "textDocument/didOpen":
             value = params["textDocument"]
             self.workspace.open(value["uri"], value["text"], value.get("version"))
+            self.invalidate_compiler()
             self.publish_all()
+            self.schedule_compiler()
         elif method == "textDocument/didChange":
             value = params["textDocument"]
             document = self.workspace.documents.get(value["uri"])
@@ -132,19 +209,24 @@ class Server:
                 # The final edit already produced the index; do not parse it twice.
                 document.version = value.get("version")
                 self.workspace.documents[value["uri"]] = document
+                self.invalidate_compiler()
                 # Diagnostics check this buffer's structure and import availability,
                 # not imported contents. Opening/closing/saving still rechecks all.
                 self.publish(document)
         elif method == "textDocument/didClose":
             uri = params["textDocument"]["uri"]
             self.workspace.documents.pop(uri, None)
+            self.invalidate_compiler()
             self.workspace.disk_cache.pop(uri, None)
             self.published.pop(uri, None)
             self.send(method="textDocument/publishDiagnostics", params=dict(uri=uri, diagnostics=[]))
             self.publish_all()
+            self.schedule_compiler()
         elif method in {"textDocument/didSave", "workspace/didChangeWatchedFiles"}:
             self.workspace.disk_cache.clear()
+            self.invalidate_compiler()
             self.publish_all()
+            self.schedule_compiler()
         elif request:
             methods = {
                 "textDocument/completion": self.workspace.completion,
@@ -158,6 +240,22 @@ class Server:
             elif method == "textDocument/references":
                 result = self.workspace.references(document, document.offset(params["position"]),
                     params.get("context", {}).get("includeDeclaration", False)) if document else []
+                if not self.workspace.scan_complete:
+                    self.send(method='window/logMessage', params=dict(type=2,
+                        message='EEL2 reference results are partial: workspace scan limits or unreadable files.'))
+            elif method == 'textDocument/prepareRename':
+                result = prepare_rename(self.workspace, document, document.offset(params['position'])) if document else None
+            elif method == 'textDocument/rename':
+                try:
+                    if not document:
+                        raise EditError('Document unavailable.')
+                    result = rename(self.workspace, document, document.offset(params['position']),
+                                    params.get('newName'), self.versioned_edits)
+                except EditError as error:
+                    self.send(id=message['id'], error=dict(code=-32602, message=str(error)))
+                    return None
+            elif method == 'textDocument/formatting':
+                result = format_document(document, params.get('options', {})) if document else []
             elif method == "textDocument/documentSymbol":
                 result = document.document_symbols() if document else []
             elif method == "textDocument/semanticTokens/full":

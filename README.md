@@ -1,7 +1,7 @@
 # EEL2 / JSFX for Zed
 
 Editor support for EEL2 and REAPER JSFX: completion, hover documentation,
-signature help, go to definition, find references, local imports, basic diagnostics and coloring.
+signature help, navigation, references, rename, formatting and diagnostics.
 
 ## Installation
 
@@ -48,16 +48,26 @@ The argument list is passed directly and supports paths containing spaces.
 - Grammar-based block/argument indentation and section/function text objects.
 - Hover with official REAPER links; built-in and user-function signature help.
 - Definitions in the current document and local imports, including unsaved buffers.
-- Find references across open effects and their local imports, including unsaved buffers.
+- Find references across open and unopened project files, including unsaved buffers.
+- Rename with collision/completeness checks; token-preserving document formatting.
+- Static namespace call-site references and optional compile-only diagnostics.
 - Separate parameters, persistent locals, namespace parameters and relative instance members.
 - Case-insensitive lookup and function/section visibility.
 - Structural diagnostics and semantic tokens; LSP document symbols.
 
-This is a lexer and lightweight symbol index, **not an EEL2 compiler**. Diagnostics
-cannot establish correct compilation or audio behavior. There is no rename,
-formatter, type checking or complete JSFX/ReaScript API model.
-Reference search does not scan unopened project files or infer runtime namespace aliases.
+The built-in analysis is a lexer and lightweight symbol index, **not an EEL2 compiler**.
+Reference discovery is bounded and runtime aliases remain approximate. Rename refuses
+instance members, instance-dependent functions and ambiguous or incomplete analysis.
+Formatting normalizes indentation without rewriting expressions. Optional native
+[ysfx compiler checking](compiler/README.md) adds real compilation diagnostics without
+running effects; REAPER is still needed for final validation.
 See [limitations and editor smoke test](docs/validation.md).
+
+Workspace discovery reads up to 256 source files / 16 MiB across explicitly opened
+folders. Hidden folders, symlinks and common build/dependency folders are skipped.
+Additional exclusions use project-relative glob patterns in
+`lsp.eel2-lsp.initialization_options.exclude`, for example `["generated", "archive/**"]`.
+This is an explicit exclusion policy, not a complete `.gitignore` implementation.
 
 The maintained [EEL2 / JSFX grammar](grammar/README.md) extends the MIT-licensed
 DyGriin grammar. Its source revision is pinned in `extension.toml`. JSFX metadata,
@@ -79,7 +89,7 @@ python3 scripts/check_eel2_grammar.py --cli /absolute/path/to/tree-sitter
 refuses overwrites. The archive uses fixed metadata and no compression so its
 checksum is identical across platforms and Python versions. After changing server
 sources, generate a temporary archive and update `server.sha256` with the printed
-digest; tests reject a stale checksum. Launch it with `python3 dist/eel2-lsp-v0.3.0.pyz --stdio`.
+digest; tests reject a stale checksum. Launch it with `python3 dist/eel2-lsp-v0.4.0.pyz --stdio`.
 No third-party Python modules are needed, and packaging includes only the server.
 
 For development installation in Zed, install a Rust toolchain with the

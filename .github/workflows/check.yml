@@ -59,9 +59,46 @@ jobs:
           name: eel2-extension-wasm
           path: target/wasm32-wasip2/release/mtt_eel2_zed.wasm
           if-no-files-found: error
+  compiler:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            executable: .compiler-build/eel2-check
+          - os: macos-14
+            platform: macos-arm64
+            executable: .compiler-build/eel2-check
+          - os: macos-15-intel
+            platform: macos-x86_64
+            executable: .compiler-build/eel2-check
+          - os: windows-latest
+            platform: windows-x86_64
+            executable: .compiler-build/Release/eel2-check.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - run: cmake -S compiler -B .compiler-build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build .compiler-build --config Release --parallel 4
+      - name: Test native compiler integration
+        shell: bash
+        env:
+          EEL2_TEST_CHECKER: ${{ github.workspace }}/${{ matrix.executable }}
+        run: python -m unittest discover -s tests -p test_eel2_editing.py -v
+      - name: Package checker and licenses
+        run: python scripts/package_eel2_checker.py --binary "${{ matrix.executable }}" --ysfx .compiler-build/_deps/ysfx-src --output "compiler-artifact/eel2-check-${{ matrix.platform }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eel2-check-${{ matrix.platform }}
+          path: compiler-artifact/*.zip
+          if-no-files-found: error
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, grammar, build]
+    needs: [test, grammar, build, compiler]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,6 +112,20 @@ jobs:
         with:
           name: eel2-extension-wasm
           path: release
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: eel2-check-*
+          path: release
+          merge-multiple: true
+      - name: Write compiler checksums
+        run: |
+          python3 - <<'PYTHON'
+          import hashlib, pathlib
+          root = pathlib.Path('release')
+          files = sorted(root.glob('eel2-check-*.zip'))
+          assert len(files) == 4
+          (root / 'compiler-SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in files))
+          PYTHON
       - name: Verify release version
         env:
           RELEASE_TAG: ${{ github.ref_name }}

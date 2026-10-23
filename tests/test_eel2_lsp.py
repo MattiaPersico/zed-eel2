@@ -307,10 +307,13 @@ class LanguageTests(unittest.TestCase):
         self.assert_references(doc, 'src*', [(doc, start, 'src') for start in src_uses[:3]])
         self.assert_references(doc, 'value) (', [
             (doc, doc.text.index('value=src'), 'value'),
-            (doc, doc.text.index('this.value') + 5, 'value')])
+            (doc, doc.text.index('this.value') + 5, 'value'),
+            (doc, src_uses[0] + 4, 'value'), (doc, src_uses[1] + 4, 'value')])
         self.assert_references(doc, 'value; this', [
             (doc, doc.text.index('src.value') + 4, 'value'),
-            (doc, doc.text.index('src.value', doc.text.index('src.value') + 1) + 4, 'value')])
+            (doc, doc.text.index('src.value', doc.text.index('src.value') + 1) + 4, 'value'),
+            (doc, doc.text.index('value=src'), 'value'),
+            (doc, doc.text.index('this.value') + 5, 'value')])
         self.assertFalse(any(s.name.lower() in ('src.value', 'this.value') and not s.scope for s in doc.symbols))
         self.assertEqual(self.workspace.definition(doc, doc.text.index('this.value') + 5)[0]['range'],
                          doc.range(doc.text.index('value) ('), doc.text.index('value) (') + 5))
@@ -380,7 +383,7 @@ class LanguageTests(unittest.TestCase):
                             'function g() (this.value=2; this.value; this..f());\n@sample\na.value=0; a.f();')
         first = doc.text.index('this.value') + 5
         self.assertEqual(len(self.workspace.references(doc, first)), 2)
-        self.assertEqual(self.workspace.references(doc, doc.text.index('this..value') + 6), [])
+        self.assertEqual(len(self.workspace.references(doc, doc.text.index('this..value') + 6)), 1)
         self.assertEqual(self.workspace.references(doc, doc.text.index('this..f') + 6), [])
 
     def test_existing_effects_have_no_lexical_diagnostics(self):
@@ -420,7 +423,8 @@ class ProtocolTests(unittest.TestCase):
         caps = self.initialize['result']['capabilities']
         self.assertEqual(caps['positionEncoding'], 'utf-16')
         self.assertEqual(caps['textDocumentSync']['change'], 1)
-        self.assertNotIn('renameProvider', caps)
+        self.assertTrue(caps['renameProvider']['prepareProvider'])
+        self.assertTrue(caps['documentFormattingProvider'])
         self.assertTrue(caps['referencesProvider'])
         self.assertEqual(self.messages(), [])
 

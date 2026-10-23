@@ -24,7 +24,8 @@ def build(output):
     sources = [(ROOT / "scripts/eel2_lsp.py", "__main__.py"),
                (EXTENSION / "LICENSE", "LICENSE")]
     sources.extend((ROOT / "scripts/eel2_support" / name, "eel2_support/" + name)
-                   for name in ("__init__.py", "catalog.py", "language.py", "server.py"))
+                   for name in ("__init__.py", "catalog.py", "language.py", "server.py",
+                                "project.py", "editing.py", "namespaces.py", "compiler.py"))
     for path, _ in sources:
         if path.is_symlink() or not path.is_file():
             raise ValueError("Missing or symlinked release source: " + str(path))

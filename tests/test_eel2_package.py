@@ -24,6 +24,8 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(set(archive.namelist()), {
                     "__main__.py", "LICENSE", "eel2_support/__init__.py",
                     "eel2_support/catalog.py", "eel2_support/language.py", "eel2_support/server.py",
+                    "eel2_support/project.py", "eel2_support/editing.py", "eel2_support/namespaces.py",
+                    "eel2_support/compiler.py",
                 })
             with self.assertRaises(FileExistsError):
                 build(first)

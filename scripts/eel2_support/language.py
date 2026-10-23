@@ -368,6 +368,17 @@ class Workspace:
     def __init__(self):
         self.documents = {}
         self.disk_cache = {}
+        self.roots, self.excludes = [], []
+        self.scan_complete = True
+
+    def set_folders(self, uris):
+        self.roots = []
+        for uri in uris:
+            path = uri_path(uri)
+            if path:
+                path = path.resolve()
+                if path not in self.roots:
+                    self.roots.append(path)
 
     def open(self, uri, text, version=None):
         document = Document(uri, text, version)
@@ -393,7 +404,7 @@ class Workspace:
             if cached and cached[0] == key:
                 return cached[1]
             document = Document(uri, path.read_text(encoding="utf-8-sig"))
-            if len(self.disk_cache) >= 128:
+            if len(self.disk_cache) >= 512:
                 self.disk_cache.clear()
             self.disk_cache[uri] = (key, document)
             return document
@@ -423,6 +434,11 @@ class Workspace:
                     found.append(imported)
                     pending.append(imported)
         return found
+
+    def imports_complete(self, document):
+        docs = [document] + self.dependencies(document)
+        known = {d.canonical_uri for d in docs}
+        return all(self.import_uri(d, name) in known for d in docs for name, _ in d.imports)
 
     def candidates(self, document, offset):
         result = [(document, s) for s in document.visible(offset)]
@@ -520,16 +536,19 @@ class Workspace:
             return []
         return [(("global", root.canonical_uri, name), token.start, token.end, declared)]
 
-    def references(self, document, offset, include_declaration=False):
-        token = document.identifier_at(offset)
-        if not token or document.preprocessed:
-            return []
+    def contexts(self, document):
+        from .project import discover
+        discovered, self.scan_complete = discover(self)
         # Roots keep unrelated effects' global variables separate. Shared imported
         # functions retain a source identity across all open importing effects.
         graphs = {}
-        for root in list(self.documents.values()) + [document]:
+        for root in list(self.documents.values()) + [document] + discovered:
             if root.canonical_uri not in graphs:
                 graphs[root.canonical_uri] = (root, [root] + self.dependencies(root))
+                docs = graphs[root.canonical_uri][1]
+                known = {d.canonical_uri for d in docs}
+                if any(self.import_uri(d, name) not in known for d in docs for name, _ in d.imports):
+                    self.scan_complete = False
         imported = {d.canonical_uri for _, docs in graphs.values() for d in docs[1:]}
         contexts = [(root, docs) for root, docs in graphs.values() if root.canonical_uri not in imported]
         # Preserve standalone include buffers and import cycles with no root.
@@ -538,10 +557,28 @@ class Workspace:
             if root.canonical_uri not in covered:
                 contexts.append((root, docs))
                 covered.update(d.canonical_uri for d in docs)
+        return contexts
+
+    def references(self, document, offset, include_declaration=False, lexical=False, reference_contexts=None):
+        token = document.identifier_at(offset)
+        if not token or document.preprocessed:
+            return []
+        contexts = reference_contexts if reference_contexts is not None else self.contexts(document)
+        from .namespaces import analyze
+        aliases = {}
+        if not lexical:
+            for root, docs in contexts:
+                aliases[root.canonical_uri], complete = analyze(self, root, docs)
+                self.scan_complete = self.scan_complete and complete
+
+        def bindings(source, occurrence, root, docs):
+            return self.bindings(source, occurrence, root, docs) + aliases.get(root.canonical_uri, {}).get(
+                (source.canonical_uri, occurrence.start), [])
+
         targets = set()
         for root, docs in contexts:
             if any(d.canonical_uri == document.canonical_uri for d in docs):
-                for key, start, end, _ in self.bindings(document, token, root, docs):
+                for key, start, end, _ in bindings(document, token, root, docs):
                     if start <= offset < end or offset == token.end == end:
                         targets.add(key)
         if not targets:
@@ -552,7 +589,7 @@ class Workspace:
                 tokens = [t for t in source.code if t.kind == "identifier"]
                 tokens.extend(s.token for s in source.symbols if s.token.start not in source.code_indices)
                 for occurrence in tokens:
-                    for key, start, end, declared in self.bindings(source, occurrence, root, docs):
+                    for key, start, end, declared in bindings(source, occurrence, root, docs):
                         if key in targets and (include_declaration or not declared):
                             locations[(source.canonical_uri, start, end)] = dict(
                                 uri=source.uri, range=source.range(start, end))

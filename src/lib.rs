@@ -115,6 +115,14 @@ impl zed::Extension for Eel2Extension {
         Self
     }
 
+    fn language_server_initialization_options(
+        &mut self,
+        server_id: &LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> Result<Option<zed::serde_json::Value>> {
+        Ok(LspSettings::for_worktree(server_id.as_ref(), worktree)?.initialization_options)
+    }
+
     fn language_server_command(
         &mut self,
         server_id: &LanguageServerId,
