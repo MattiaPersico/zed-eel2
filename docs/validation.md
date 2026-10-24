@@ -110,6 +110,43 @@ errors are not published as LSP diagnostics.
 
 ## Recorded validation
 
+## Version 0.4.0 editing and compiler integration
+
+Validation on 2026-10-24:
+
+- All 90 workspace checks passed with the native checker enabled. The standalone
+  suite passed 68 tests with one expected private-corpus skip.
+- [Candidate workflow 40033241890](https://github.com/MattiaPersico/zed-eel2/actions/runs/40033241890)
+  passed all six Python 3.9/3.14 combinations, grammar/query checks, Rust tests,
+  WASM build and four native compiler builds (Linux x86_64, Windows x86_64,
+  macOS arm64 and Intel).
+- In Zed 1.25.2 on macOS arm64, Rename changed a shared function declaration and
+  two callers, including an unopened file. The editor applied and saved all edits.
+  Format indented the function body. An intentional unknown function produced an
+  `eel2-ysfx` diagnostic; correcting and saving the source cleared it.
+- The installed server automatically discovered the versioned sibling checker and
+  returned a real compiler error through LSP without an environment override.
+- Formatting all 14 private workspace sources in memory preserved every token and
+  was idempotent. No effect files were changed.
+- The 10,000-assignment benchmark with 40 imports and 21 open documents measured
+  approximately 105 ms parse, 112 ms edit, 7 ms completion and 201 ms references.
+  This synthetic benchmark does not measure workspace disk scanning.
+
+Tested source: `62ea5d53568c2f44b0842d8697bf9acae6afa9be`.
+Server archive SHA-256:
+`7c1f32354fedc43c25efa216b41b85e598309d418db1660e17e9a787f2095204`.
+The local server archive was byte-identical to the candidate CI artifact.
+
+The [release workflow 40078220853](https://github.com/MattiaPersico/zed-eel2/actions/runs/40078220853)
+also passed. Published server and WASM artifacts are byte-identical to the tested
+candidate; all four checker ZIPs match `compiler-SHA256SUMS`, and the macOS arm64
+checker executable is byte-identical to the installed/tested candidate. The
+[0.4.0 release](https://github.com/MattiaPersico/zed-eel2/releases/tag/v0.4.0)
+contains all seven expected assets.
+
+Compiler checks only compile; no REAPER execution, audio or UI testing was performed.
+
+
 ## Version 0.3.0 references and scopes
 
 - Advertise LSP textDocument/references and honor includeDeclaration.
