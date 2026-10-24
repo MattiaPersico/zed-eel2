@@ -70,6 +70,8 @@ class Server:
         self.executor = ThreadPoolExecutor(max_workers=1) if self.checker else None
         self.compiler_results, self.compiler_jobs = {}, {}
         self.compiler_generation = 0
+        self.watch_supported = False
+        self.watch_requested = False
 
     def send(self, **message):
         write_message(self.output, dict(jsonrpc="2.0", **message))
@@ -132,7 +134,10 @@ class Server:
     def _handle(self, message):
         method = message.get("method")
         request = "id" in message
-        if method is None:  # Client response to a server request (none currently sent).
+        if method is None:
+            if message.get('id') == 'eel2-watch-files' and message.get('error'):
+                self.send(method='window/logMessage', params=dict(type=2,
+                    message='EEL2 file watching was declined; save or restart to refresh diagnostics.'))
             return None
         if method == "exit":
             status = 0 if self.shutdown else 1
@@ -152,6 +157,8 @@ class Server:
             self.workspace.excludes = [x for x in excludes if isinstance(x, str)] if isinstance(excludes, list) else []
             self.versioned_edits = bool(options.get('capabilities', {}).get('workspace', {}).get(
                 'workspaceEdit', {}).get('documentChanges'))
+            self.watch_supported = bool(options.get('capabilities', {}).get('workspace', {}).get(
+                'didChangeWatchedFiles', {}).get('dynamicRegistration'))
             self.send(id=message["id"], result=dict(
                 serverInfo=dict(name="MTT EEL2 Language Server", version=VERSION),
                 capabilities=dict(
@@ -160,6 +167,7 @@ class Server:
                     completionProvider=dict(triggerCharacters=[".", "@", "#", "$"]),
                     hoverProvider=True, definitionProvider=True, documentSymbolProvider=True,
                     referencesProvider=True,
+                    workspaceSymbolProvider=True, documentHighlightProvider=True,
                     renameProvider=dict(prepareProvider=True), documentFormattingProvider=True,
                     workspace=dict(workspaceFolders=dict(supported=True, changeNotifications=True)),
                     signatureHelpProvider=dict(triggerCharacters=["(", ","], retriggerCharacters=[","]),
@@ -180,11 +188,23 @@ class Server:
             self.send(id=message["id"], result=None)
             return None
         params = message.get("params") or {}
-        if method == 'workspace/didChangeWorkspaceFolders':
+        if method == 'initialized':
+            if self.watch_supported and not self.watch_requested:
+                self.watch_requested = True
+                self.send(id='eel2-watch-files', method='client/registerCapability', params=dict(
+                    registrations=[dict(id='eel2-source-files', method='workspace/didChangeWatchedFiles',
+                        registerOptions=dict(watchers=[dict(
+                            globPattern='**/*.{[jJ][sS][fF][xX],[jJ][sS][fF][xX]-[iI][nN][cC],[eE][eE][lL],[eE][eE][lL]2}',
+                            kind=7)]))]))
+        elif method == 'workspace/didChangeWorkspaceFolders':
             event = params.get('event', {})
             removed = {f['uri'] for f in event.get('removed', [])}
             uris = [p.as_uri() for p in self.workspace.roots if p.as_uri() not in removed]
             self.workspace.set_folders(uris + [f['uri'] for f in event.get('added', [])])
+            self.workspace.disk_cache.clear()
+            self.invalidate_compiler()
+            self.publish_all()
+            self.schedule_compiler()
         elif method == "textDocument/didOpen":
             value = params["textDocument"]
             self.workspace.open(value["uri"], value["text"], value.get("version"))
@@ -233,10 +253,16 @@ class Server:
                 "textDocument/hover": self.workspace.hover,
                 "textDocument/definition": self.workspace.definition,
                 "textDocument/signatureHelp": self.workspace.signature,
+                "textDocument/documentHighlight": self.workspace.highlights,
             }
             document = self.workspace.read(params.get("textDocument", {}).get("uri", ""))
             if method in methods:
                 result = methods[method](document, document.offset(params["position"])) if document else None
+            elif method == 'workspace/symbol':
+                result = self.workspace.workspace_symbols(params.get('query', ''))
+                if not self.workspace.scan_complete:
+                    self.send(method='window/logMessage', params=dict(type=2,
+                        message='EEL2 symbol results are partial: refine the query or check workspace scan limits.'))
             elif method == "textDocument/references":
                 result = self.workspace.references(document, document.offset(params["position"]),
                     params.get("context", {}).get("includeDeclaration", False)) if document else []

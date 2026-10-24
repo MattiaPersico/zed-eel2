@@ -217,6 +217,127 @@ class EditingTests(unittest.TestCase):
         self.assertNotIn(b'stale error', output.getvalue())
 
 
+class NavigationTests(unittest.TestCase):
+    setUp = EditingTests.setUp
+
+    def doc(self, text, name="effect.jsfx", opened=False):
+        return EditingTests.doc(self, text, name, opened)
+
+    def test_workspace_search_closed_files_fuzzy_ranking_and_locations(self):
+        self.workspace.set_folders([self.root.as_uri()])
+        doc = self.doc('desc:🎵\r\n@init\r\nfunction filter_gain(x) (x);\r\nfunction fgn(x) (x);', 'closed.jsfx')
+        result = self.workspace.workspace_symbols('FGN')
+        self.assertEqual([s['name'] for s in result], ['fgn', 'filter_gain'])
+        self.assertEqual(result[1]['location'], dict(uri=doc.uri,
+            range=doc.range(doc.text.index('filter_gain'), doc.text.index('filter_gain') + 11)))
+        self.assertEqual(result[1]['containerName'], 'closed.jsfx @init')
+        self.assertEqual(self.workspace.documents, {})
+
+    def test_workspace_search_unsaved_aliases_locals_and_preprocessing(self):
+        self.workspace.set_folders([self.root.as_uri(), self.root.as_uri()])
+        doc = self.doc('@init\nfunction saved(x) local(hidden) (hidden=x);', 'library.jsfx-inc')
+        self.workspace.open(doc.uri, '@init\nfunction unsaved(x) local(hidden) (hidden=x);', 2)
+        self.doc('@init\n<? ?>\nfunction generated(x) (x);', 'generated.jsfx')
+        names = [s['name'] for s in self.workspace.workspace_symbols('')]
+        self.assertEqual(names, ['unsaved'])
+        self.assertEqual(self.workspace.workspace_symbols('saved')[0]['name'], 'unsaved')
+
+    def test_workspace_search_exclusions_new_files_deletion_and_limit(self):
+        self.workspace.set_folders([self.root.as_uri()])
+        (self.root/'vendor').mkdir()
+        self.doc('@init\nfunction ignored() (0);', 'vendor/hidden.jsfx')
+        self.assertEqual(self.workspace.workspace_symbols(''), [])
+        path = self.root/'added.eel2'
+        path.write_text('function fresh() (0);')
+        self.assertEqual(self.workspace.workspace_symbols('fresh')[0]['name'], 'fresh')
+        path.unlink()
+        self.assertEqual(self.workspace.workspace_symbols('fresh'), [])
+        self.doc('@init\n'+'\n'.join('function f%d() (0);'%i for i in range(300)))
+        self.assertEqual(len(self.workspace.workspace_symbols('')), 256)
+        self.assertFalse(self.workspace.scan_complete)
+        self.assertEqual(len(self.workspace.workspace_symbols('f299')), 1)
+        self.assertTrue(self.workspace.scan_complete)
+
+    def test_workspace_search_without_root_includes_open_buffers_and_imports(self):
+        self.workspace.set_folders([])
+        self.doc('@init\nfunction imported() (0);', 'lib.jsfx-inc')
+        doc = self.doc('import lib.jsfx-inc\n@init\ngain=1;')
+        self.workspace.open(doc.uri, doc.text, 1)
+        self.doc('@init\nfunction unrelated() (0);', 'closed.jsfx')
+        self.assertEqual({s['name'] for s in self.workspace.workspace_symbols('')}, {'gain','imported'})
+
+    def test_highlights_respect_scope_comments_unicode_and_avoid_project_scan(self):
+        doc = self.doc('@init\r\nfunction f(x) (x+x);\r\nfunction g(x) (x);\r\n// x 🎵\r\nx=1;')
+        with patch('eel2_support.project.discover', side_effect=AssertionError('No project scan')):
+            result = self.workspace.highlights(doc, doc.text.index('x)'))
+        spans = [doc.text[doc.offset(h['range']['start']):doc.offset(h['range']['end'])] for h in result]
+        self.assertEqual(spans, ['x','x','x'])
+        self.assertTrue(all(h['range']['start']['line']==1 for h in result))
+        self.assertEqual(self.workspace.highlights(doc,doc.text.index('// x')+3), [])
+
+    def test_highlights_namespace_prefixes_slider_aliases_and_functions(self):
+        doc = self.doc('slider1:gain=1<0,2>Gain\n@init\nfunction f(ns*) (ns.value+ns.other);\ngain+=gain;\nf(obj);')
+        result = self.workspace.highlights(doc, doc.text.index('ns*'))
+        self.assertEqual(len(result),3)
+        self.assertTrue(all(doc.offset(h['range']['end'])-doc.offset(h['range']['start'])==2 for h in result))
+        self.assertEqual(len(self.workspace.highlights(doc,doc.text.index('gain'))),3)
+        self.assertEqual(len(self.workspace.highlights(doc,doc.text.index('f(obj)'))),2)
+        generated = self.doc('<? ?>\n@init\nx=1;x;','generated.jsfx')
+        self.assertEqual(self.workspace.highlights(generated,generated.text.index('x=')),[])
+
+    def test_protocol_registers_watchers_once_only_after_initialized(self):
+        for supported in (False, True):
+            out = io.BytesIO()
+            with patch('eel2_support.server.checker_path', return_value=None):
+                server = Server(out)
+            server.handle(dict(id=1,method='initialize',params=dict(capabilities=dict(workspace=dict(
+                didChangeWatchedFiles=dict(dynamicRegistration=supported))))))
+            server.handle(dict(method='initialized'))
+            server.handle(dict(method='initialized'))
+            out.seek(0)
+            capabilities = read_message(out)['result']['capabilities']
+            self.assertTrue(capabilities['workspaceSymbolProvider'])
+            self.assertTrue(capabilities['documentHighlightProvider'])
+            registration = read_message(out)
+            if supported:
+                self.assertEqual(registration['method'],'client/registerCapability')
+                self.assertEqual(registration['params']['registrations'][0]['method'],'workspace/didChangeWatchedFiles')
+                self.assertIsNone(read_message(out))
+                out.seek(0,2)
+                server.handle(dict(id='eel2-watch-files',error=dict(code=-32601,message='unsupported')))
+                self.assertIn(b'file watching was declined',out.getvalue())
+            else:
+                self.assertIsNone(registration)
+
+    def test_protocol_disk_event_clears_import_error_and_keeps_unsaved_buffer(self):
+        out = io.BytesIO()
+        with patch('eel2_support.server.checker_path', return_value=None):
+            server = Server(out)
+        server.handle(dict(id=1,method='initialize',params=dict(rootUri=self.root.as_uri())))
+        uri = (self.root/'effect.jsfx').as_uri()
+        text = 'import new.jsfx-inc\n@init\nunsaved=1;unsaved;'
+        server.handle(dict(method='textDocument/didOpen',params=dict(textDocument=dict(uri=uri,text=text,version=5))))
+        self.assertTrue(server.published[uri])
+        library = self.root/'new.jsfx-inc'; library.write_text('@init\nfunction added() (0);')
+        with patch.object(server,'schedule_compiler') as schedule:
+            server.handle(dict(method='workspace/didChangeWatchedFiles',params=dict(changes=[dict(uri=library.as_uri(),type=1)])))
+            schedule.assert_called_once()
+        self.assertEqual(server.published[uri],[])
+        self.assertEqual(server.workspace.read(uri).text,text)
+        server.handle(dict(id=2,method='workspace/symbol',params=dict(query='added')))
+        server.handle(dict(id=3,method='textDocument/documentHighlight',params=dict(textDocument=dict(uri=uri),position=dict(line=2,character=1))))
+        out.seek(0); messages=[]
+        while True:
+            m=read_message(out)
+            if m is None: break
+            messages.append(m)
+        self.assertEqual(next(m for m in messages if m.get('id')==2)['result'][0]['name'],'added')
+        self.assertEqual(len(next(m for m in messages if m.get('id')==3)['result']),2)
+        library.unlink()
+        server.handle(dict(method='workspace/didChangeWatchedFiles',params=dict(changes=[dict(uri=library.as_uri(),type=3)])))
+        self.assertTrue(server.published[uri])
+
+
 @unittest.skipUnless(os.environ.get('EEL2_TEST_CHECKER'), 'Optional native checker not built')
 class CompilerTests(unittest.TestCase):
     setUp = EditingTests.setUp

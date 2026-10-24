@@ -46,6 +46,8 @@ def main():
             parse_ms=measure(lambda: Document(uri, source)),
             completion_ms=measure(lambda: workspace.completion(document, len(document.text))),
             references_ms=measure(lambda: workspace.references(document, document.text.index('value0'))),
+            highlights_ms=measure(lambda: workspace.highlights(document, document.text.index("value0"))),
+            workspace_symbols_ms=measure(lambda: workspace.workspace_symbols("helper")),
             edit_ms=measure(edit)), indent=2))
 
 

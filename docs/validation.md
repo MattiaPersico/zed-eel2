@@ -28,6 +28,33 @@ spl0 = scale(sin(0), gain);
 
 ## Editing, discovery and compiler checks
 
+### Project symbol search and highlights
+
+Use Zed's project symbol search to find functions, sliders and assignment-discovered
+variables across workspace folders. Matching is case-insensitive: exact names rank
+first, then prefixes, substrings and ordered subsequences. Results include file and
+section context, exclude function-local variables and preprocessed files, and use
+unsaved buffers before disk. Without workspace folders, only open documents and
+their imports are searched. At most 256 results are returned; refine the query when
+the server logs that results are partial. Discovery uses the bounds/exclusions below;
+additional imports of open buffers are limited to 512 indexed documents. Disk files
+are checked on each search, so newly created/deleted sources are reflected immediately.
+
+Document highlights match lexical bindings in the current buffer, including slider
+aliases and namespace parameter prefixes. They do not scan workspace folders or
+infer runtime aliases. The LSP highlight kind is Text; read/write classification is
+not claimed. Comments, strings and preprocessed sources are excluded.
+
+The server registers file watchers after initialization only when the client advertises
+dynamic registration. Create/change/delete events refresh disk caches, structural
+import diagnostics and optional compiler results while retaining unsaved buffers.
+There is no polling thread. If registration is unsupported or declined, saving still
+refreshes diagnostics and subsequent navigation requests read current disk contents.
+
+Protocol references: [workspace symbols](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_symbol),
+[document highlights](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentHighlight)
+and [file watching](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles).
+
 ### Rename
 
 Zed's Rename command supports ordinary user functions, globals, slider aliases,
@@ -77,7 +104,7 @@ and aliases are recognized. First simple assignments are treated as declarations
 includeDeclaration. UTF-16 positions and canonical path deduplication are preserved.
 Imports remain relative to each source, at most 64 files per graph and 2 MiB per disk
 file; REAPER's global resource search is not reproduced. External disk changes are
-picked up on subsequent requests/saves, not by a background directory watcher.
+picked up through negotiated editor file watchers and on subsequent requests/saves.
 
 ### Optional real compilation
 

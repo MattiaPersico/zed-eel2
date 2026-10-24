@@ -1,22 +1,18 @@
-# EEL2 / JSFX v0.4.0
+# EEL2 / JSFX v0.5.0
 
-- Add Rename with a prepare step, collision checks and versioned edits. Support
-  ordinary user functions, globals, sliders' aliases, parameters, persistent locals
-  and namespace parameter prefixes; refuse unsafe/ambiguous or incomplete changes.
-- Discover unopened EEL2/JSFX files in explicit workspace folders. Bound scanning,
-  skip hidden/build/dependency folders and symlinks, and support additional exclusions.
-- Follow statically known namespace calls, namespace arguments and parent-relative
-  paths in reference searches. Keep object instances distinct; do not use these
-  inferred aliases for automatic rename.
-- Add token-preserving formatting: consistent indentation and code trailing-space
-  cleanup while preserving headers, comments, strings and line endings. Decline
-  incomplete/preprocessed source.
-- Add optional ysfx compile-only diagnostics on open/save, with unsaved import
-  snapshots, a background worker, stale-result protection and a five-second timeout.
-- Publish optional native checkers and license notices for macOS arm64/Intel,
-  Linux x86_64 and Windows x86_64, with release checksums.
+- Add project-wide symbol search for functions, sliders and assignment-discovered
+  globals, including unopened workspace files and unsaved buffers. Rank exact,
+  prefix, substring and subsequence matches; return at most 256 results with
+  file/section context and precise UTF-16 locations.
+- Add document highlights that respect lexical scope, namespace parameter prefixes
+  and slider aliases, without scanning workspace folders when the cursor moves.
+- Register source-file watchers when the editor supports dynamic registration.
+  External file changes refresh import diagnostics and optional compiler results;
+  unsaved buffers retain precedence over disk. Clients without watchers still
+  refresh on save and read disk changes on subsequent navigation requests.
 
-Python 3.9+ remains required. Compiler checking is optional and needs its native
-helper; the other features work with the standard extension. ysfx is not REAPER's
-compiler and does not prove audio correctness. No effect code is executed by the
-checker. Catalog inclusion still awaits human submission and maintainer acceptance.
+Project search uses the existing bounded discovery/exclusions and skips preprocessed
+sources. Highlights are lexical, not runtime alias or read/write analysis. Python
+3.9+ remains required. The optional compile-only helper is distributed for four
+platforms; no effect code is executed. Catalog inclusion still awaits human
+submission and maintainer acceptance.

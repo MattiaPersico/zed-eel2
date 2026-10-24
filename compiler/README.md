@@ -47,7 +47,7 @@ absolute executable path using its existing settings:
 
 On Windows use `eel2-check.exe` and JSON-escaped backslashes. On macOS/Linux preserve
 the executable permission when extracting. Alternatively, put the binary alongside
-the server's cached `.pyz` with the name `eel2-check-v0.4.0` (`.exe` on Windows).
+the server's cached `.pyz` with the name `eel2-check-v0.5.0` (`.exe` on Windows).
 The language server recognizes that exact sibling filename automatically. Set
 `EEL2_CHECKER` to an empty string to disable compiler checking.
 

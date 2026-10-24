@@ -51,6 +51,9 @@ The argument list is passed directly and supports paths containing spaces.
 - Find references across open and unopened project files, including unsaved buffers.
 - Rename with collision/completeness checks; token-preserving document formatting.
 - Static namespace call-site references and optional compile-only diagnostics.
+- Project symbol search with fuzzy matching and unsaved-buffer support.
+- Scope-aware document highlights without project-wide scanning on cursor movement.
+- Negotiated file watchers to refresh diagnostics after external changes.
 - Separate parameters, persistent locals, namespace parameters and relative instance members.
 - Case-insensitive lookup and function/section visibility.
 - Structural diagnostics and semantic tokens; LSP document symbols.
@@ -89,7 +92,7 @@ python3 scripts/check_eel2_grammar.py --cli /absolute/path/to/tree-sitter
 refuses overwrites. The archive uses fixed metadata and no compression so its
 checksum is identical across platforms and Python versions. After changing server
 sources, generate a temporary archive and update `server.sha256` with the printed
-digest; tests reject a stale checksum. Launch it with `python3 dist/eel2-lsp-v0.4.0.pyz --stdio`.
+digest; tests reject a stale checksum. Launch it with `python3 dist/eel2-lsp-v0.5.0.pyz --stdio`.
 No third-party Python modules are needed, and packaging includes only the server.
 
 For development installation in Zed, install a Rust toolchain with the

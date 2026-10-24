@@ -2,6 +2,7 @@
 
 from bisect import bisect_right
 from dataclasses import dataclass
+import heapq
 from pathlib import Path
 import re
 from urllib.parse import urlparse
@@ -595,6 +596,85 @@ class Workspace:
                                 uri=source.uri, range=source.range(start, end))
         return sorted(locations.values(), key=lambda loc: (
             loc["uri"], loc["range"]["start"]["line"], loc["range"]["start"]["character"]))
+
+    def workspace_symbols(self, query):
+        """Search declarations, retaining fresh disk reads for navigation and rename."""
+        from .project import discover
+        discovered, self.scan_complete = discover(self)
+        documents = {}
+        # Open buffers win over disk and canonical aliases, including unsaved edits.
+        for source in list(self.documents.values()) + discovered:
+            documents.setdefault(source.canonical_uri, source)
+        for source in list(self.documents.values()):
+            for imported in self.dependencies(source):
+                if len(documents) >= 512 and imported.canonical_uri not in documents:
+                    self.scan_complete = False
+                    break
+                documents.setdefault(imported.canonical_uri, imported)
+        query = query.strip().lower()[:256] if isinstance(query, str) else ''
+        count = 0
+
+        def candidates():
+            nonlocal count
+            for source in documents.values():
+                if source.preprocessed:
+                    continue
+                path = uri_path(source.canonical_uri)
+                label = path.name if path else source.uri
+                if path:
+                    for root in self.roots:
+                        try:
+                            label = path.relative_to(root).as_posix()
+                            break
+                        except ValueError:
+                            pass
+                for symbol in source.symbols:
+                    if symbol.scope:
+                        continue
+                    name = symbol.name.lower()
+                    if name == query:
+                        score = 0
+                    elif name.startswith(query):
+                        score = 1
+                    elif query in name:
+                        score = 2
+                    else:
+                        letters = iter(name)
+                        if not all(any(c == letter for c in letters) for letter in query):
+                            continue
+                        score = 3
+                    count += 1
+                    item = dict(name=symbol.name, kind=symbol.kind,
+                                containerName=label + (' ' + symbol.section if symbol.section else ''),
+                                location=dict(uri=source.uri, range=source.range(
+                                    symbol.token.start, symbol.token.end)))
+                    yield (score, len(name), name, source.canonical_uri, symbol.token.start), item
+
+        results = heapq.nsmallest(256, candidates(), key=lambda pair: pair[0])
+        self.scan_complete = self.scan_complete and count <= 256
+        return [item for _, item in results]
+
+    def highlights(self, document, offset):
+        """Lexical occurrences in this buffer; never scan workspace folders on cursor moves."""
+        token = document.identifier_at(offset)
+        if not token or document.preprocessed:
+            return []
+        sources = [document] + self.dependencies(document)
+        targets = {key for key, start, end, _ in self.bindings(document, token, document, sources)
+                   if start <= offset < end or offset == token.end == end}
+        if not targets:
+            return []
+        tokens = [t for t in document.code if t.kind == 'identifier']
+        tokens.extend(s.token for s in document.symbols if s.token.start not in document.code_indices)
+        results = {}
+        for occurrence in tokens:
+            for key, start, end, declared in self.bindings(document, occurrence, document, sources):
+                if key not in targets:
+                    continue
+                # Text is deliberate: namespace prefixes, parameters and calls can
+                # participate in runtime aliases; do not promise read/write analysis.
+                results[(start, end)] = dict(range=document.range(start, end), kind=1)
+        return [results[key] for key in sorted(results)]
 
     def diagnostics(self, document):
         issues = list(document.issues)
