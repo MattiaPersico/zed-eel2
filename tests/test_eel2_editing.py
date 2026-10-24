@@ -36,7 +36,7 @@ class EditingTests(unittest.TestCase):
     def doc(self, text, name='effect.jsfx', opened=True):
         path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding='utf-8')
+        path.write_bytes(text.encode('utf-8'))
         return self.workspace.open(path.as_uri(), text, 4) if opened else self.workspace.read(path.as_uri())
 
     def test_closed_importers_are_found_but_hidden_build_and_excluded_files_are_not(self):
