@@ -46,6 +46,7 @@ class CallHierarchyTests(unittest.TestCase):
         incoming = calls(self.workspace, selected, True)
         self.assertEqual({r['from']['name'] for r in incoming}, {'wrapper', '@sample', '@gfx'})
         by_name = {r['from']['name']: r for r in incoming}
+        self.assertEqual(by_name['@sample']['from']['detail'], '@sample — effect.jsfx')
         self.assertEqual(self.slices(doc, by_name['wrapper']), ['leaf', 'leaf'])
         self.assertEqual(self.slices(doc, by_name['@sample']), ['a.leaf', 'leaf'])
         self.assertEqual(by_name['@sample']['fromRanges'][0]['start'], dict(line=4, character=6))

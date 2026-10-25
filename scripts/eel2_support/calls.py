@@ -48,11 +48,11 @@ def item(node):
         section = next((s for s in document.sections if s.start == start), None)
         if section is None:
             return None
-        name, detail, symbol_kind = section.value, label, 2
+        name, detail, symbol_kind = section.value, section.value + ' — ' + label, 2
         first, selection_end = start, section.end
         end = next((s.start for s in document.sections if s.start > start), len(document.text))
     elif kind == 'file' and start == 0:
-        name, detail, symbol_kind = label, 'Top-level EEL2 calls', 2
+        name, detail, symbol_kind = label, label + ' — Top-level EEL2 calls', 2
         first = selection_end = 0
         end = document.sections[0].start if document.sections else len(document.text)
     else:
