@@ -187,7 +187,21 @@ ambiguous shared imports, namespace exclusions, stale items, Unicode/CRLF ranges
 symlink deduplication and bounded graph/results. The synthetic 10,000-line,
 40-import, 21-open-buffer fixture found all 20 expected incoming callers in about
 129 ms median. This does not measure disk-project discovery or guarantee latency.
-Editor and release checks pending.
+Candidate [workflow 40213779945](https://github.com/MattiaPersico/zed-eel2/actions/runs/40213779945)
+and release [workflow 40214091053](https://github.com/MattiaPersico/zed-eel2/actions/runs/40214091053)
+passed all six Python combinations, four native compiler builds, grammar checks
+and Rust/WASM checks. All seven release assets were checked against their GitHub
+digests; the four native archives also match `compiler-SHA256SUMS`. The published
+server, WASM adapter and macOS arm64 checker match the installed candidate bytes.
+
+Manual Zed checks confirmed outgoing calls to an imported function with two call
+sites, incoming calls grouped by function and JSFX section, and navigation to a
+caller in a previously unopened file. Section labels were checked after fixing
+an initial display issue. The same incoming-call results were verified with the
+normally installed 0.6.0 server, without a test-project binary override; its cache
+path was confirmed in the Zed log. Only the temporary test window was closed.
+Catalog submission remains deferred. No effects were executed in REAPER and no
+audio validation was performed.
 
 ## Version 0.5.1 project responsiveness
 
