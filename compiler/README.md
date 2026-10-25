@@ -52,7 +52,8 @@ The language server recognizes that exact sibling filename automatically. Set
 `EEL2_CHECKER` to an empty string to disable compiler checking.
 
 Restart the language server after changing this setting. Compiler checks run in a
-background worker on open/save, for up to eight open JSFX roots per event. Edits
+background worker on open/save and watched-file events, for up to eight open JSFX
+roots per event. Buffer edits
 immediately clear old compiler results; save again for a fresh check. Unsaved imports
 are copied into the snapshot, imports are rewritten to snapshot-local paths, source
 files are never modified, and the subprocess is terminated after five seconds.

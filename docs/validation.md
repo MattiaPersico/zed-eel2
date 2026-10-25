@@ -30,7 +30,7 @@ spl0 = scale(sin(0), gain);
 
 ### Project symbol search and highlights
 
-Use Zed's project symbol search to find functions, sliders and assignment-discovered
+Use **project symbols: toggle** (Cmd-T on macOS) to find functions, sliders and assignment-discovered
 variables across workspace folders. Matching is case-insensitive: exact names rank
 first, then prefixes, substrings and ordered subsequences. Results include file and
 section context, exclude function-local variables and preprocessed files, and use
@@ -109,14 +109,14 @@ picked up through negotiated editor file watchers and on subsequent requests/sav
 ### Optional real compilation
 
 The [native checker](../compiler/README.md) links a pinned ysfx EEL2
-compiler. It compiles temporary snapshots on open/save, including unsaved imports,
+compiler. It compiles temporary snapshots on open/save and watched-file events, including unsaved imports,
 without initializing or running effects. A background worker prevents editor stalls,
 results become invalid immediately after edits, and each process has a five-second
 timeout. At most eight open JSFX roots are checked per event. Preprocessed/missing/
 over-limit imports are explicitly skipped. Diagnostics use source `eel2-ysfx`.
 
 Install the matching checker release and set `EEL2_CHECKER` through Zed's
-`lsp.eel2-lsp.binary.env`, or place `eel2-check-v0.4.0` (`.exe` on Windows) alongside
+`lsp.eel2-lsp.binary.env`, or place `eel2-check-v0.5.0` (`.exe` on Windows) alongside
 the cached server archive. The rest of the extension does not require this helper.
 Its ZIP includes dependency license notices; release checksums are supplied.
 
@@ -136,6 +136,43 @@ errors are not published as LSP diagnostics.
 
 
 ## Recorded validation
+
+## Version 0.5.0 project navigation
+
+Validation on 2026-10-24:
+
+- All 98 workspace tests passed with the native checker enabled. New coverage
+  includes unopened sources, unsaved precedence, fuzzy ordering, result limits,
+  file creation/deletion, scope/namespace/slider highlights, watcher negotiation,
+  declined registration, and diagnostics after external import changes.
+- In Zed 1.25.2 on macOS arm64, Cmd-T found `distant_filter` in an unopened file
+  and navigated to its declaration. Selecting a parameter highlighted its three
+  occurrences in one function, excluding the other function's same-name parameter.
+- Creating a missing include outside Zed cleared both the missing-import warning
+  and the compiler-skipped notification, without saving or restarting the server.
+- The synthetic 10,000-assignment / 40-import / 21-open-document benchmark measured
+  about 76 ms for document highlights and 65 ms for workspace symbols. This fixture
+  does not exercise workspace disk scanning; these are not latency guarantees.
+- The Windows run found CRLF translation in the test fixture writer. Fixtures now
+  write UTF-8 bytes to preserve the requested line endings on every platform.
+
+Candidate [workflow 40105252524](https://github.com/MattiaPersico/zed-eel2/actions/runs/40105252524)
+passed all six Python combinations, four native compiler builds, grammar checks and
+Rust/WASM checks at source `bc50e9e0f2b77f8e43d2737fe9900f98482a0961`.
+The CI archive matched the locally tested server byte for byte. The installed
+adapter then started the versioned archive from Zed's normal cache without any
+binary override; project search worked, and an external include edit produced and
+then cleared a compiler diagnostic. The temporary editor window was closed afterward.
+
+Release [workflow 40105482561](https://github.com/MattiaPersico/zed-eel2/actions/runs/40105482561)
+also passed. All seven published assets were downloaded and verified against their
+GitHub digests; the four native archives also matched `compiler-SHA256SUMS`.
+The published server, WASM adapter and extracted macOS arm64 checker matched the
+installed, tested candidate byte for byte.
+
+Server archive SHA-256:
+`406dfb7cf091a1f494043a5d92a54b6b395c3e330e0443441e311fc15ee9b1a9`.
+No REAPER execution or audio tests were performed, and no effect source was edited.
 
 ## Version 0.4.0 editing and compiler integration
 
