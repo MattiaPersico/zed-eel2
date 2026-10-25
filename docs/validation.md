@@ -157,8 +157,28 @@ errors are not published as LSP diagnostics.
 Local validation on 2026-10-25: all 105 workspace tests passed with the native
 checker enabled. Seven new regression cases cover atomic replacements, unstable
 reads, LRU byte/file limits, unsaved precedence, alias invalidation, save/watch/close
-events and fresh references/rename after project changes. CI and installation
-validation are pending.
+events and fresh references/rename after project changes.
+
+Candidate [workflow 40188943859](https://github.com/MattiaPersico/zed-eel2/actions/runs/40188943859)
+passed all six Python combinations, four native compiler builds, grammar and
+Rust/WASM checks at `a88b70b9c4b41ce0dafcb7bd489532c8084f5045`.
+
+In Zed on macOS arm64, project search found an unopened imported function. An
+external atomic replacement preserving size and mtime was recognized on the next
+search. The installed adapter then started the 0.5.1 archive from the normal Zed
+cache, without a binary override. An externally introduced compiler error appeared
+and cleared after correction without saving or restarting; project search still
+worked. Only the temporary test window was closed. No effects were edited and no
+REAPER/audio tests were performed.
+
+Release [workflow 40189169730](https://github.com/MattiaPersico/zed-eel2/actions/runs/40189169730)
+also passed. All seven published assets matched their GitHub digests, and all four
+compiler ZIPs matched `compiler-SHA256SUMS`. The server, adapter and extracted
+macOS arm64 checker matched the installed, tested candidate byte for byte.
+Catalog submission remains deferred; the catalog fork was not updated.
+
+Server archive SHA-256:
+`04a07d7810a88f076f60136f7aebf60c95f93f8dd4ad9cad9fff4c852aed723c`.
 
 A synthetic project with 128 disk files and 12,800 symbols
 on the owner's Mac measured broad warm search at 13.29 ms (0.5.0: 30.91 ms), and
