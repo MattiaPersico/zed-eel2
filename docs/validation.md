@@ -26,6 +26,32 @@ spl0 = scale(sin(0), gain);
   function. Edit its name in the open include without saving and check completion.
 
 
+## Incoming and outgoing calls
+
+Select a user function name and use **Go > Show Incoming Calls** or
+**Go > Show Outgoing Calls**. Function declarations and calls can prepare a
+hierarchy; JSFX section headers can prepare top-level outgoing calls. Returned
+function, section and file items can be expanded in either direction. Repeated
+calls are grouped, with each call site retained as a UTF-16 range in its caller.
+
+The [LSP call hierarchy](https://github.com/microsoft/language-server-protocol/blob/gh-pages/_specifications/lsp/3.17/language/callHierarchy.md)
+uses the same fresh workspace discovery, local imports and unsaved-buffer precedence
+as references. Without workspace folders it only follows open buffers, the selected
+source and their local imports. Analysis is lexical: built-ins, unresolved or
+ambiguous calls, dynamic namespace-parameter/`this` calls, preprocessed and
+structurally incomplete documents are omitted. A shared include whose call resolves
+differently in separate effects is not assigned one guessed target. Concrete
+qualified calls use the existing lexical resolver; this is not runtime reachability
+or full overload/declaration-order analysis.
+
+Each expansion permits up to 262,144 indexed code tokens, 16,384 call sites and
+32,768 context resolutions, in addition to existing discovery/import limits.
+Exceeding a graph-work limit returns no calls and logs an incomplete-analysis
+warning. Output is capped at 256 related items and 2,048 total call-site ranges;
+truncation is also logged. Items contain a source revision: if that source changes
+before expansion, the server returns ContentModified; reopen the hierarchy to
+prepare current positions. No call graph survives between requests.
+
 ## Editing, discovery and compiler checks
 
 ### Project symbol search and highlights
@@ -131,7 +157,7 @@ timeout. At most eight open JSFX roots are checked per event. Preprocessed/missi
 over-limit imports are explicitly skipped. Diagnostics use source `eel2-ysfx`.
 
 Install the matching checker release and set `EEL2_CHECKER` through Zed's
-`lsp.eel2-lsp.binary.env`, or place `eel2-check-v0.5.1` (`.exe` on Windows) alongside
+`lsp.eel2-lsp.binary.env`, or place `eel2-check-v0.6.0` (`.exe` on Windows) alongside
 the cached server archive. The rest of the extension does not require this helper.
 Its ZIP includes dependency license notices; release checksums are supplied.
 
@@ -151,6 +177,17 @@ errors are not published as LSP diagnostics.
 
 
 ## Recorded validation
+
+## Version 0.6.0 call hierarchy
+
+Local validation on 2026-10-25: all 117 workspace tests passed with the native
+checker enabled. Twelve new unit/protocol cases cover both directions, repeated/nested
+calls, section-local functions, imports, unsaved changes, new/deleted callers,
+ambiguous shared imports, namespace exclusions, stale items, Unicode/CRLF ranges,
+symlink deduplication and bounded graph/results. The synthetic 10,000-line,
+40-import, 21-open-buffer fixture found all 20 expected incoming callers in about
+129 ms median. This does not measure disk-project discovery or guarantee latency.
+Editor and release checks pending.
 
 ## Version 0.5.1 project responsiveness
 

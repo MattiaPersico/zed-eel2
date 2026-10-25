@@ -1,16 +1,19 @@
-# EEL2 / JSFX v0.5.1
+# EEL2 / JSFX v0.6.0
 
-- Keep unchanged parsed sources on save and watched-file events. Invalidate the
-  changed file and cached aliases while preserving unsaved buffers.
-- Bound the disk cache to 512 least-recently-used files and 16 MiB of source bytes;
-  evict only old entries instead of discarding the entire cache. Parsed Python
-  objects use additional memory; open buffers are separate from this budget.
-- Detect atomic replacements using file identity and change timestamps as well as
-  modification time and size. Retry once when a file changes during a disk read;
-  decline unstable snapshots rather than caching mismatched contents.
-- Build UTF-16 result locations only for the best 256 symbol matches. Preserve
-  ranking, exclusions and fresh directory discovery, including for rename.
-- Add regression coverage and a 128-file / 12,800-symbol disk-project benchmark.
+- Add incoming and outgoing call hierarchy through Zed's Go menu. Prepare on a
+  user function declaration/call or JSFX section header; expand returned callers
+  and callees to navigate further.
+- Group repeated call sites by function, top-level JSFX section or EEL file.
+  Include unopened workspace files, local imports and unsaved buffers, with
+  UTF-16 source locations and canonical path deduplication.
+- Rebuild analysis from current documents on each expansion. Reject stale items
+  with ContentModified instead of navigating to a different symbol after edits.
+- Omit built-ins, unresolved/ambiguous calls, dynamic namespace-parameter and this
+  calls, and generated or structurally incomplete source. Keep existing workspace
+  scan limits and bound graph work, returned items and call-site ranges.
 
-Python 3.9+ remains required. No effect source is modified or executed. This is a
-performance and robustness update; catalog submission remains deferred.
+This is static source navigation, not a runtime call graph. Functions not reached
+at runtime may still appear. Shared include calls that resolve differently across
+effects are omitted. Runtime namespaces and overload/declaration-order semantics
+are not fully modeled. No effect code is modified or executed. Python 3.9+ remains
+required; catalog submission stays deferred.

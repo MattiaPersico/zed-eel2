@@ -49,6 +49,7 @@ The argument list is passed directly and supports paths containing spaces.
 - Hover with official REAPER links; built-in and user-function signature help.
 - Definitions in the current document and local imports, including unsaved buffers.
 - Find references across open and unopened project files, including unsaved buffers.
+- Incoming/outgoing static call hierarchy, grouped by function or top-level section.
 - Rename with collision/completeness checks; token-preserving document formatting.
 - Static namespace call-site references and optional compile-only diagnostics.
 - Project symbol search with fuzzy matching and unsaved-buffer support.

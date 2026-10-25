@@ -10,6 +10,7 @@ from . import VERSION
 from .language import Document, TOKEN_TYPES, Workspace
 from .editing import EditError, format_document, prepare_rename, rename
 from .compiler import checker_path, check as compiler_check
+from .calls import StaleItem, prepare as prepare_calls, calls as call_hierarchy
 
 MAX_MESSAGE = 16 * 1024 * 1024
 
@@ -167,6 +168,7 @@ class Server:
                     completionProvider=dict(triggerCharacters=[".", "@", "#", "$"]),
                     hoverProvider=True, definitionProvider=True, documentSymbolProvider=True,
                     referencesProvider=True,
+                    callHierarchyProvider=True,
                     workspaceSymbolProvider=True, documentHighlightProvider=True,
                     renameProvider=dict(prepareProvider=True), documentFormattingProvider=True,
                     workspace=dict(workspaceFolders=dict(supported=True, changeNotifications=True)),
@@ -272,6 +274,17 @@ class Server:
                 if not self.workspace.scan_complete:
                     self.send(method='window/logMessage', params=dict(type=2,
                         message='EEL2 reference results are partial: workspace scan limits or unreadable files.'))
+            elif method == 'textDocument/prepareCallHierarchy':
+                result = prepare_calls(self.workspace, document, document.offset(params['position'])) if document else []
+            elif method in {'callHierarchy/incomingCalls', 'callHierarchy/outgoingCalls'}:
+                try:
+                    result = call_hierarchy(self.workspace, params.get('item'), method == 'callHierarchy/incomingCalls')
+                except StaleItem as error:
+                    self.send(id=message['id'], error=dict(code=-32801, message=str(error)))
+                    return None
+                if not self.workspace.scan_complete:
+                    self.send(method='window/logMessage', params=dict(type=2,
+                        message='EEL2 call hierarchy is incomplete: workspace scan, graph or result limits.'))
             elif method == 'textDocument/prepareRename':
                 result = prepare_rename(self.workspace, document, document.offset(params['position'])) if document else None
             elif method == 'textDocument/rename':

@@ -25,7 +25,7 @@ static void json_string(const std::string &text) {
 }
 static int run(const char *path) {
     if (std::strcmp(path, "--version") == 0) {
-        std::puts("eel2-check 0.5.1 (ysfx 8077347)"); return 0;
+        std::puts("eel2-check 0.6.0 (ysfx 8077347)"); return 0;
     }
     ysfx_config_t *config = ysfx_config_new();
     if (!config) return 2;

@@ -25,7 +25,7 @@ class ReleaseTests(unittest.TestCase):
                     "__main__.py", "LICENSE", "eel2_support/__init__.py",
                     "eel2_support/catalog.py", "eel2_support/language.py", "eel2_support/server.py",
                     "eel2_support/project.py", "eel2_support/editing.py", "eel2_support/namespaces.py",
-                    "eel2_support/compiler.py",
+                    "eel2_support/compiler.py", "eel2_support/calls.py",
                 })
             with self.assertRaises(FileExistsError):
                 build(first)

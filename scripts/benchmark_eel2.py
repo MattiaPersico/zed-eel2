@@ -9,6 +9,7 @@ import time
 
 from eel2_support.language import Document, Workspace
 from eel2_support.server import Server
+from eel2_support.calls import prepare, calls
 
 
 def measure(operation):
@@ -63,6 +64,9 @@ def main():
             server.workspace.open(other_uri, imports + '@sample\nspl0=0;', 1)
             workspace.open(other_uri, imports + '@sample\nhelper0(1);', 1)
         server.workspace.open(uri, source, 1)
+        helper = workspace.read((root / 'lib0.jsfx-inc').as_uri())
+        hierarchy_item = prepare(workspace, helper, helper.text.index('helper0'))[0]
+        assert len(calls(workspace, hierarchy_item, True)) == 20 and workspace.scan_complete
         version = [1]
         def edit():
             version[0] += 1
@@ -74,6 +78,7 @@ def main():
             references_ms=measure(lambda: workspace.references(document, document.text.index('value0'))),
             highlights_ms=measure(lambda: workspace.highlights(document, document.text.index("value0"))),
             workspace_symbols_ms=measure(lambda: workspace.workspace_symbols("helper")),
+            incoming_calls_ms=measure(lambda: calls(workspace, hierarchy_item, True)),
             edit_ms=measure(edit), disk_project=disk_project(root / 'project')), indent=2))
 
 
