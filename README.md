@@ -5,7 +5,7 @@ signature help, navigation, references, rename, formatting and diagnostics.
 
 ## Installation
 
-**Catalog status: not yet published to the Zed extension registry.**
+**Catalog status: not published to the Zed extension registry; submission is deferred.**
 A GitHub release is separate from acceptance into Zed's catalog. Once the registry
 submission is merged, search Zed Extensions for **EEL2 / JSFX** and choose Install.
 
@@ -52,6 +52,7 @@ The argument list is passed directly and supports paths containing spaces.
 - Rename with collision/completeness checks; token-preserving document formatting.
 - Static namespace call-site references and optional compile-only diagnostics.
 - Project symbol search with fuzzy matching and unsaved-buffer support.
+- Reuse unchanged parsed files after save/watch events; bounded LRU disk cache.
 - Scope-aware document highlights without project-wide scanning on cursor movement.
 - Negotiated file watchers to refresh diagnostics after external changes.
 - Separate parameters, persistent locals, namespace parameters and relative instance members.

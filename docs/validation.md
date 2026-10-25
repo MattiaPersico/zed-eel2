@@ -106,6 +106,21 @@ Imports remain relative to each source, at most 64 files per graph and 2 MiB per
 file; REAPER's global resource search is not reproduced. External disk changes are
 picked up through negotiated editor file watchers and on subsequent requests/saves.
 
+### Parsed disk cache
+
+Unchanged disk documents are reused after save and watched-file notifications.
+Only notified paths and their cached aliases are invalidated. Open buffers always
+win over disk, including unsaved imports. Every read checks file identity, size,
+modification time and change time; a read whose stamp changes is retried once,
+then declined if still unstable. A metadata cache is not a filesystem snapshot:
+filesystems that preserve all these fields require a watcher/save notification.
+
+The LRU cache retains at most 512 files and 16 MiB of source bytes. Parsed objects
+consume additional memory, and open buffers are outside this cache budget. Directory
+entries are still discovered freshly for project search, references and rename;
+new/deleted sources are not hidden behind a cached file list. Symbol search constructs
+UTF-16 locations only for its best 256 results, preserving the previous ranking.
+
 ### Optional real compilation
 
 The [native checker](../compiler/README.md) links a pinned ysfx EEL2
@@ -116,7 +131,7 @@ timeout. At most eight open JSFX roots are checked per event. Preprocessed/missi
 over-limit imports are explicitly skipped. Diagnostics use source `eel2-ysfx`.
 
 Install the matching checker release and set `EEL2_CHECKER` through Zed's
-`lsp.eel2-lsp.binary.env`, or place `eel2-check-v0.5.0` (`.exe` on Windows) alongside
+`lsp.eel2-lsp.binary.env`, or place `eel2-check-v0.5.1` (`.exe` on Windows) alongside
 the cached server archive. The rest of the extension does not require this helper.
 Its ZIP includes dependency license notices; release checksums are supplied.
 
@@ -136,6 +151,21 @@ errors are not published as LSP diagnostics.
 
 
 ## Recorded validation
+
+## Version 0.5.1 project responsiveness
+
+Local validation on 2026-10-25: all 105 workspace tests passed with the native
+checker enabled. Seven new regression cases cover atomic replacements, unstable
+reads, LRU byte/file limits, unsaved precedence, alias invalidation, save/watch/close
+events and fresh references/rename after project changes. CI and installation
+validation are pending.
+
+A synthetic project with 128 disk files and 12,800 symbols
+on the owner's Mac measured broad warm search at 13.29 ms (0.5.0: 30.91 ms), and
+search after one notified file change at 16.77 ms (0.5.0: 222.16 ms). Narrow warm
+search remained similar: 28.70 ms versus 30.15 ms. These local measurements are
+not latency guarantees. Unlike earlier benchmarks, this fixture includes actual
+workspace discovery and disk reads. Cold search includes parsing the whole project.
 
 ## Version 0.5.0 project navigation
 

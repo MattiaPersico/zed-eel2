@@ -338,6 +338,138 @@ class NavigationTests(unittest.TestCase):
         self.assertTrue(server.published[uri])
 
 
+class ProjectCacheTests(unittest.TestCase):
+    setUp = EditingTests.setUp
+
+    def source(self, name, text='@init\nvalue=1;'):
+        path = self.root / name
+        path.write_bytes(text.encode('utf-8'))
+        return path
+
+    def test_atomic_replacement_with_preserved_size_and_time_is_seen(self):
+        path = self.source('effect.jsfx', '@init\nfunction old_name() (1);')
+        before = self.workspace.read(path.as_uri())
+        previous = path.stat()
+        replacement = self.source('replacement', '@init\nfunction new_name() (1);')
+        os.utime(replacement, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        os.replace(replacement, path)
+        after = self.workspace.read(path.as_uri())
+        self.assertIsNot(before, after)
+        self.assertIn('new_name', after.text)
+        self.assertEqual([s['name'] for s in self.workspace.workspace_symbols('')], ['new_name'])
+        path.unlink()
+        self.assertIsNone(self.workspace.read(path.as_uri()))
+        self.assertEqual(self.workspace.workspace_symbols(''), [])
+
+    def test_changed_during_read_is_retried_and_continuous_changes_are_declined(self):
+        path = self.source('effect.jsfx')
+        read_text = Path.read_text
+        reads = []
+        def changing(source, *args, **kwargs):
+            text = read_text(source, *args, **kwargs)
+            reads.append(text)
+            if len(reads) == 1:
+                source.write_bytes(b'@init\nupdated=12;')
+            return text
+        with patch.object(Path, 'read_text', changing):
+            doc = self.workspace.read(path.as_uri())
+        self.assertEqual(len(reads), 2)
+        self.assertIn('updated=12', doc.text)
+        self.workspace.invalidate_disk([path.as_uri()])
+        def unstable(source, *args, **kwargs):
+            text = read_text(source, *args, **kwargs)
+            source.write_bytes((text + ' ').encode('utf-8'))
+            return text
+        with patch.object(Path, 'read_text', unstable):
+            self.assertIsNone(self.workspace.read(path.as_uri()))
+        self.assertIsNotNone(self.workspace.read(path.as_uri()))
+
+    def test_lru_retains_recent_files_under_entry_and_byte_limits(self):
+        paths = [self.source('%d.jsfx' % i) for i in range(3)]
+        for limits in (dict(MAX_CACHE_FILES=2), dict(MAX_CACHE_BYTES=paths[0].stat().st_size * 2)):
+            self.workspace = Workspace()
+            with patch.multiple(self.workspace, **limits):
+                first = self.workspace.read(paths[0].as_uri())
+                second = self.workspace.read(paths[1].as_uri())
+                self.assertIs(self.workspace.read(paths[0].as_uri()), first)
+                third = self.workspace.read(paths[2].as_uri())
+                self.assertIs(self.workspace.read(paths[0].as_uri()), first)
+                self.assertIs(self.workspace.read(paths[2].as_uri()), third)
+                self.assertIsNot(self.workspace.read(paths[1].as_uri()), second)
+
+    def test_oversized_for_cache_remains_readable_and_open_buffers_take_precedence(self):
+        path = self.source('effect.jsfx')
+        with patch.object(self.workspace, 'MAX_CACHE_BYTES', 1):
+            self.assertEqual(self.workspace.read(path.as_uri()).text, '@init\nvalue=1;')
+            self.assertFalse(self.workspace.disk_cache)
+        self.workspace.read(path.as_uri())
+        opened = self.workspace.open(path.as_uri(), '@init\nunsaved=2;', 3)
+        path.unlink()
+        self.workspace.invalidate_disk([path.as_uri()])
+        self.assertIs(self.workspace.read(path.as_uri()), opened)
+        self.workspace.documents.pop(path.as_uri())
+        self.assertIsNone(self.workspace.read(path.as_uri()))
+
+    def test_event_invalidates_cached_aliases_but_not_other_files(self):
+        real = self.source('real.jsfx-inc')
+        alias = self.root / 'alias.jsfx-inc'
+        try:
+            alias.symlink_to(real)
+        except OSError as error:
+            self.skipTest(str(error))
+        other = self.source('other.jsfx-inc')
+        documents = [self.workspace.read(p.as_uri()) for p in (real, alias, other)]
+        self.workspace.invalidate_disk([real.as_uri()])
+        self.assertIsNot(self.workspace.read(real.as_uri()), documents[0])
+        self.assertIsNot(self.workspace.read(alias.as_uri()), documents[1])
+        self.assertIs(self.workspace.read(other.as_uri()), documents[2])
+
+    def test_save_watch_and_close_keep_unchanged_parses_and_refresh_dependencies(self):
+        library = self.source('lib.jsfx-inc', 'function before() (0);')
+        unchanged = self.source('stable.jsfx-inc', 'function stable() (0);')
+        with patch('eel2_support.server.checker_path', return_value=None):
+            server = Server(io.BytesIO())
+        server.handle(dict(id=1, method='initialize', params=dict(rootUri=self.root.as_uri())))
+        uri = (self.root / 'effect.jsfx').as_uri()
+        server.handle(dict(method='textDocument/didOpen', params=dict(textDocument=dict(uri=uri,
+            version=1, text='import lib.jsfx-inc\nimport stable.jsfx-inc\n@init\nunsaved=1;'))))
+        stable = server.workspace.read(unchanged.as_uri())
+        before = server.workspace.read(library.as_uri())
+        server.handle(dict(method='textDocument/didSave', params=dict(textDocument=dict(uri=uri))))
+        self.assertIs(server.workspace.read(unchanged.as_uri()), stable)
+        self.assertIs(server.workspace.read(library.as_uri()), before)
+        library.write_bytes(b'function after() (0);')
+        server.handle(dict(method='workspace/didChangeWatchedFiles', params=dict(changes=[
+            dict(uri=library.as_uri(), type=2)])))
+        self.assertIs(server.workspace.read(unchanged.as_uri()), stable)
+        self.assertIn('after', server.workspace.read(library.as_uri()).text)
+        server.handle(dict(method='textDocument/didClose', params=dict(textDocument=dict(uri=uri))))
+        self.assertIs(server.workspace.read(unchanged.as_uri()), stable)
+        server.handle(dict(method='workspace/didChangeWorkspaceFolders', params=dict(event=dict(
+            removed=[dict(uri=self.root.as_uri())], added=[]))))
+        self.assertEqual(server.workspace.roots, [])
+        self.assertFalse(server.workspace.disk_cache)
+
+    def test_warm_search_materializes_only_results_and_still_finds_new_importers(self):
+        path = self.source('library.jsfx-inc', '\n'.join(
+            'function filter_%03d() (0);' % i for i in range(1000)))
+        document = self.workspace.read(path.as_uri())
+        with patch.object(document, 'range', wraps=document.range) as locations:
+            result = self.workspace.workspace_symbols('filter')
+            self.assertEqual(len(result), 256)
+            self.assertEqual(locations.call_count, 256)
+        self.assertEqual([s['name'] for s in result], ['filter_%03d' % i for i in range(256)])
+        self.assertFalse(self.workspace.scan_complete)
+        first = self.source('first.jsfx', 'import library.jsfx-inc\n@init\nfilter_999();')
+        offset = document.text.index('filter_999')
+        self.assertEqual([r['uri'] for r in self.workspace.references(document, offset)], [first.as_uri()])
+        second = self.source('second.jsfx', 'import library.jsfx-inc\n@init\nfilter_999();')
+        changes = rename(self.workspace, document, offset, 'renamed')['changes']
+        self.assertEqual(set(changes), {path.as_uri(), first.as_uri(), second.as_uri()})
+        second.unlink()
+        self.assertEqual([r['uri'] for r in self.workspace.references(document, offset)], [first.as_uri()])
+
+
 @unittest.skipUnless(os.environ.get('EEL2_TEST_CHECKER'), 'Optional native checker not built')
 class CompilerTests(unittest.TestCase):
     setUp = EditingTests.setUp

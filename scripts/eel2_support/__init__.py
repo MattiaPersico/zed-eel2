@@ -1,3 +1,3 @@
 """Small, dependency-free EEL2/JSFX language tooling."""
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"

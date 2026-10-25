@@ -201,7 +201,7 @@ class Server:
             removed = {f['uri'] for f in event.get('removed', [])}
             uris = [p.as_uri() for p in self.workspace.roots if p.as_uri() not in removed]
             self.workspace.set_folders(uris + [f['uri'] for f in event.get('added', [])])
-            self.workspace.disk_cache.clear()
+            self.workspace.invalidate_disk()
             self.invalidate_compiler()
             self.publish_all()
             self.schedule_compiler()
@@ -237,13 +237,16 @@ class Server:
             uri = params["textDocument"]["uri"]
             self.workspace.documents.pop(uri, None)
             self.invalidate_compiler()
-            self.workspace.disk_cache.pop(uri, None)
+            self.workspace.invalidate_disk([uri])
             self.published.pop(uri, None)
             self.send(method="textDocument/publishDiagnostics", params=dict(uri=uri, diagnostics=[]))
             self.publish_all()
             self.schedule_compiler()
         elif method in {"textDocument/didSave", "workspace/didChangeWatchedFiles"}:
-            self.workspace.disk_cache.clear()
+            if method == 'textDocument/didSave':
+                self.workspace.invalidate_disk([params['textDocument']['uri']])
+            else:
+                self.workspace.invalidate_disk([change['uri'] for change in params.get('changes', [])])
             self.invalidate_compiler()
             self.publish_all()
             self.schedule_compiler()

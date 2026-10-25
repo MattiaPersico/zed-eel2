@@ -1,10 +1,12 @@
 """Lexical EEL2 services. This module never compiles or executes effect code."""
 
 from bisect import bisect_right
+from collections import OrderedDict
 from dataclasses import dataclass
 import heapq
 from pathlib import Path
 import re
+import stat
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -365,10 +367,12 @@ class Document:
 class Workspace:
     MAX_FILE = 2 * 1024 * 1024
     MAX_IMPORTS = 64
+    MAX_CACHE_FILES = 512
+    MAX_CACHE_BYTES = 16 * 1024 * 1024
 
     def __init__(self):
         self.documents = {}
-        self.disk_cache = {}
+        self.disk_cache = OrderedDict()
         self.roots, self.excludes = [], []
         self.scan_complete = True
 
@@ -386,6 +390,25 @@ class Workspace:
         self.documents[uri] = document
         return document
 
+    def invalidate_disk(self, uris=None):
+        """Drop changed files and cached aliases without discarding other parses."""
+        if uris is None:
+            self.disk_cache.clear()
+            return
+        changed = set(uris)
+        canonical = {canonical_uri(uri) for uri in changed}
+        for uri, (_, document) in list(self.disk_cache.items()):
+            if uri in changed or document.canonical_uri in canonical:
+                self.disk_cache.pop(uri, None)
+
+    @staticmethod
+    def disk_stamp(path):
+        metadata = path.stat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError('Not a regular source file')
+        return (metadata.st_dev, metadata.st_ino, metadata.st_mtime_ns,
+                metadata.st_ctime_ns, metadata.st_size)
+
     def read(self, uri):
         if uri in self.documents:
             return self.documents[uri]
@@ -397,20 +420,33 @@ class Workspace:
         if path is None:
             return None
         try:
-            stat = path.stat()
-            if not path.is_file() or stat.st_size > self.MAX_FILE:
-                return None
-            key = (stat.st_mtime_ns, stat.st_size)
-            cached = self.disk_cache.get(uri)
-            if cached and cached[0] == key:
-                return cached[1]
-            document = Document(uri, path.read_text(encoding="utf-8-sig"))
-            if len(self.disk_cache) >= 512:
-                self.disk_cache.clear()
-            self.disk_cache[uri] = (key, document)
-            return document
+            # Retry once if a writer replaces/changes a file during the read.
+            # Do not associate text from one revision with another revision's stamp.
+            for _ in range(2):
+                key = self.disk_stamp(path)
+                if key[-1] > self.MAX_FILE:
+                    break
+                cached = self.disk_cache.get(uri)
+                if cached and cached[0] == key:
+                    self.disk_cache.move_to_end(uri)
+                    return cached[1]
+                text = path.read_text(encoding="utf-8-sig")
+                if self.disk_stamp(path) != key:
+                    continue
+                document = Document(uri, text)
+                self.disk_cache.pop(uri, None)
+                if key[-1] <= self.MAX_CACHE_BYTES:
+                    size = sum(stamp[-1] for stamp, _ in self.disk_cache.values())
+                    while self.disk_cache and (len(self.disk_cache) >= self.MAX_CACHE_FILES or
+                                              size + key[-1] > self.MAX_CACHE_BYTES):
+                        old, _ = self.disk_cache.popitem(last=False)[1]
+                        size -= old[-1]
+                    self.disk_cache[uri] = (key, document)
+                return document
         except (OSError, UnicodeError, ValueError):
-            return None
+            pass
+        self.disk_cache.pop(uri, None)
+        return None
 
     def import_uri(self, document, name):
         path = uri_path(document.uri)
@@ -619,15 +655,6 @@ class Workspace:
             for source in documents.values():
                 if source.preprocessed:
                     continue
-                path = uri_path(source.canonical_uri)
-                label = path.name if path else source.uri
-                if path:
-                    for root in self.roots:
-                        try:
-                            label = path.relative_to(root).as_posix()
-                            break
-                        except ValueError:
-                            pass
                 for symbol in source.symbols:
                     if symbol.scope:
                         continue
@@ -644,15 +671,29 @@ class Workspace:
                             continue
                         score = 3
                     count += 1
-                    item = dict(name=symbol.name, kind=symbol.kind,
-                                containerName=label + (' ' + symbol.section if symbol.section else ''),
-                                location=dict(uri=source.uri, range=source.range(
-                                    symbol.token.start, symbol.token.end)))
-                    yield (score, len(name), name, source.canonical_uri, symbol.token.start), item
+                    yield (score, len(name), name, source.canonical_uri, symbol.token.start), source, symbol
 
         results = heapq.nsmallest(256, candidates(), key=lambda pair: pair[0])
         self.scan_complete = self.scan_complete and count <= 256
-        return [item for _, item in results]
+        items, labels = [], {}
+        # Only materialize precise locations for the winning results, not every
+        # matching declaration in a broad query. Retain the original ranking.
+        for _, source, symbol in results:
+            if source.canonical_uri not in labels:
+                path = uri_path(source.canonical_uri)
+                label = path.name if path else source.uri
+                if path:
+                    for root in self.roots:
+                        try:
+                            label = path.relative_to(root).as_posix()
+                            break
+                        except ValueError:
+                            pass
+                labels[source.canonical_uri] = label
+            items.append(dict(name=symbol.name, kind=symbol.kind,
+                containerName=labels[source.canonical_uri] + (' ' + symbol.section if symbol.section else ''),
+                location=dict(uri=source.uri, range=source.range(symbol.token.start, symbol.token.end))))
+        return items
 
     def highlights(self, document, offset):
         """Lexical occurrences in this buffer; never scan workspace folders on cursor moves."""
